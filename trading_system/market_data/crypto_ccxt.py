@@ -16,9 +16,17 @@ class CCXTMarketData:
         self.exchange.load_markets()
 
     def fetch_candles(self, symbol: str, timeframe: str = "1h", limit: int = 100) -> list[Candle]:
+        return self.fetch_candles_since(symbol, timeframe, None, limit)
+
+    def fetch_candles_since(self, symbol: str, timeframe: str,
+                            since, limit: int = 100) -> list[Candle]:
+        """Fetch a page beginning at a timezone-aware UTC timestamp (or latest)."""
         if limit < 1 or limit > 1000:
             raise ValueError("limit must be between 1 and 1000")
-        rows = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        if since is not None and since.tzinfo is None:
+            raise ValueError("since must be timezone-aware")
+        since_ms = int(since.timestamp() * 1000) if since is not None else None
+        rows = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since_ms, limit=limit)
         candles = [Candle.from_epoch_ms(market="crypto", symbol=symbol,
                     timeframe=timeframe, timestamp_ms=row[0], open=row[1],
                     high=row[2], low=row[3], close=row[4], volume=row[5])
