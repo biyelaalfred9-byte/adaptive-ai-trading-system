@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from .config import RiskConfig
 
-app = FastAPI(title="Adaptive AI Trading System", version="0.1.0")
+app = FastAPI(title="Adaptive AI Trading System", version="0.2.0")
 risk_config = RiskConfig()
 
 
@@ -14,9 +14,13 @@ def health():
 def system_info():
     return {
         "name": "Adaptive AI Trading System",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "mode": "paper",
         "live_trading_enabled": False,
+        "market_data": {
+            "crypto": "read-only CCXT adapter available (optional dependency)",
+            "forex": "read-only OANDA practice adapter available (token required)",
+        },
         "risk": {
             "risk_per_trade": risk_config.risk_per_trade,
             "hard_risk_cap": risk_config.hard_risk_cap,
