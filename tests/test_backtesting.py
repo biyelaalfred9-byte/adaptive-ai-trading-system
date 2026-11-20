@@ -4,7 +4,7 @@ import pytest
 
 from trading_system.domain import Market, Side, Signal
 from trading_system.market_data.models import Candle
-from trading_system.research.backtesting import BacktestConfig, Backtester
+from trading_system.backtesting import BacktestConfig, Backtester
 from trading_system.execution.paper import PaperCostModel
 
 
