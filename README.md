@@ -110,3 +110,45 @@ python -m trading_system.research_runner research.json --output research_report.
 ```
 
 The database must first contain historical candles for each configured series. Backfill each series using `HistoricalDataBackfiller` before running research. Forex jobs can be added when OANDA practice data access is available; credentials are not embedded in the research config. The report is research-only: qualification means eligible for additional paper testing, never automatic strategy activation or live trading. JSON output labels infinite profit factor as the string `"Infinity"` so the report remains standards-compliant.
+
+
+## Historical backfill command
+
+Use `trading_system.backfill_runner` to populate the SQLite candle database from read-only market-data providers. Supply explicit timezone-aware UTC date bounds; the command never submits orders.
+
+Create `backfill.json`:
+
+```json
+{
+  "database": "market_data.sqlite3",
+  "jobs": [
+    {
+      "market": "crypto",
+      "exchange": "binance",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "start": "2024-01-01T00:00:00Z",
+      "end": "2026-01-01T00:00:00Z",
+      "page_limit": 500,
+      "max_pages": 1000
+    },
+    {
+      "market": "crypto",
+      "exchange": "binance",
+      "symbol": "ETH/USDT",
+      "timeframe": "1h",
+      "start": "2024-01-01T00:00:00Z",
+      "end": "2026-01-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+Install the crypto extra and run:
+
+```bash
+pip install -e ".[crypto,dev]"
+python -m trading_system.backfill_runner backfill.json --output backfill_report.json
+```
+
+The runner reports per-series success/failure and candle counts, continues to later jobs after a job fails, and exits non-zero if any job failed. Backfill jobs are bounded by explicit dates, page size and maximum pages. OANDA Forex jobs use `market: "forex"`, an OANDA instrument such as `EUR_USD`, and OANDA granularity such as `H1`; set `OANDA_API_TOKEN` in the environment first. Do not put tokens in JSON or commit credentials. Re-running a range is safe because SQLite upserts existing candle timestamps.
