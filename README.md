@@ -44,7 +44,7 @@ Crypto OHLCV uses public Binance/CCXT endpoints. Forex OHLCV uses the read-only 
 ## Backtesting
 
 ```python
-from trading_system.research.backtesting import Backtester, BacktestConfig
+from trading_system.backtesting import Backtester, BacktestConfig
 from trading_system.strategies import TrendFollowingStrategy
 
 result = Backtester(BacktestConfig(initial_equity=10_000)).run(
