@@ -9,8 +9,9 @@ A cloud-first, multi-market research and paper-trading platform for crypto and F
 3. Data operations: polling collector and persistent SQLite OHLCV history.
 4. Strategy engine: explainable trend-following, momentum and mean-reversion baselines.
 5. **Backtesting:** next-candle entries, conservative stop/target handling, transaction costs and performance metrics.
-6. Dashboard and cloud deployment: planned, not yet deployed.
-7. Live trading: disabled; no live order-submission adapter exists.
+6. **Walk-forward evaluation:** rolling out-of-sample strategy comparison with explicit qualification thresholds.
+7. Dashboard and cloud deployment: planned, not yet deployed.
+8. Live trading: disabled; no live order-submission adapter exists.
 
 AI may propose and explain signals. It cannot change risk limits or bypass the deterministic risk gate. Market-data adapters are read-only. Backtests are research simulations, not broker execution.
 
@@ -55,7 +56,7 @@ print(result.metrics)
 
 The backtester creates signals using data available through a candle close and enters no earlier than the next candle open. It holds at most one position, applies estimated spread/slippage/fees at both entry and exit, and reports win rate, profit factor, net PnL, return and maximum drawdown. Open positions are marked to market for drawdown measurement and closed at the final candle close. If a candle touches both stop and target, it assumes the stop was hit first. These conservative OHLC assumptions are not order-book replay and cannot model all gaps, liquidity, funding, swap or market impact.
 
-Use `walk_forward_splits` to keep chronological training and test periods separate. Compare strategies across multiple instruments and market regimes; do not select a strategy on training-period results alone. Require sufficient out-of-sample trades before automated selection. Backtests do not prove future profitability.
+Use `WalkForwardEvaluator` to compare strategies over rolling chronological folds. Training candles are used only for indicator warm-up; signals and trades are restricted to each test window. The default `SelectionPolicy` requires at least 30 out-of-sample trades, 60% profitable folds, pooled profit factor of at least 1.10 and worst-fold drawdown no greater than 5%. These thresholds are configurable. A qualifying strategy is only eligible for further paper testing; this module does not activate or select a live strategy. Run the evaluation across multiple instruments and market regimes. Backtests do not prove future profitability.
 
 ## Execution costs
 
