@@ -4,15 +4,15 @@ A cloud-first, multi-market research and paper-trading platform for crypto and F
 
 ## Safety-first development stages
 
-1. **Foundation:** domain models, deterministic risk gate, paper execution, SQLite trade journal and API.
-2. **Market data:** read-only Binance/CCXT crypto candles and OANDA practice Forex candles.
-3. **Data operations:** polling collector and persistent SQLite OHLCV history.
-4. **Strategy engine:** explainable trend-following, momentum and mean-reversion baselines.
-5. **Research and paper trading:** configurable spread, slippage and fee assumptions; walk-forward evaluation.
-6. **Dashboard and cloud deployment:** planned, not yet deployed.
-7. **Live trading:** disabled; no live order-submission adapter exists.
+1. Foundation: domain models, deterministic risk gate, paper execution, SQLite journal and API.
+2. Market data: read-only Binance/CCXT crypto candles and OANDA practice Forex candles.
+3. Data operations: polling collector and persistent SQLite OHLCV history.
+4. Strategy engine: explainable trend-following, momentum and mean-reversion baselines.
+5. **Backtesting:** next-candle entries, conservative stop/target handling, transaction costs and performance metrics.
+6. Dashboard and cloud deployment: planned, not yet deployed.
+7. Live trading: disabled; no live order-submission adapter exists.
 
-AI may propose and explain signals. It cannot change risk limits or bypass the deterministic risk gate. Market-data adapters are read-only. Strategy signals are candidates only; they must pass the independent risk gate before paper execution.
+AI may propose and explain signals. It cannot change risk limits or bypass the deterministic risk gate. Market-data adapters are read-only. Backtests are research simulations, not broker execution.
 
 ## Risk defaults
 
@@ -22,8 +22,6 @@ AI may propose and explain signals. It cannot change risk limits or bypass the d
 - Leverage: 1x (disabled).
 - Stop-loss required; no martingale or uncontrolled averaging down.
 
-These are guardrails, not a guarantee against loss. Validate in simulation before considering real capital.
-
 ## Install and test
 
 Python 3.11+
@@ -31,81 +29,38 @@ Python 3.11+
 ```bash
 python -m venv .venv
 # Windows: .venv\\Scripts\\activate
-# macOS/Linux: source .venv/bin/activate
 pip install -e ".[dev,crypto,forex]"
 pytest -q
-uvicorn trading_system.api:app --reload
 ```
 
-Health endpoint: `GET /health`; configuration: `GET /system`.
+## Market data and collection
 
-## Market data
+Crypto OHLCV uses public Binance/CCXT endpoints. Forex OHLCV uses the read-only OANDA practice adapter; access from Zambia must be verified. Neither submits orders. `CandleStore` persists OHLCV in SQLite and `MarketDataCollector` polls providers. It is not yet a deployed always-on worker or websocket feed.
 
-### Crypto (public data)
+## Strategies
+
+`StrategyEngine` runs three deterministic candidates: EMA trend-following, lookback momentum and RSI mean-reversion. Signals include rationale, confidence, ATR-based stop and reward/risk target. Signals never place orders.
+
+## Backtesting
 
 ```python
-from trading_system.market_data.crypto_ccxt import CCXTMarketData
-provider = CCXTMarketData("binance")
-candles = provider.fetch_candles("BTC/USDT", timeframe="1h", limit=100)
+from trading_system.research.backtesting import Backtester, BacktestConfig
+from trading_system.strategies import TrendFollowingStrategy
+
+result = Backtester(BacktestConfig(initial_equity=10_000)).run(
+    candles, TrendFollowingStrategy()
+)
+print(result.metrics)
 ```
 
-No exchange API key is required for public OHLCV candles. Install the crypto extra with `pip install -e ".[crypto]"`.
+The backtester creates signals using data available through a candle close and enters no earlier than the next candle open. It holds at most one position, applies estimated spread/slippage/fees at both entry and exit, and reports win rate, profit factor, net PnL, return and maximum drawdown. Open positions are marked to market for drawdown measurement and closed at the final candle close. If a candle touches both stop and target, it assumes the stop was hit first. These conservative OHLC assumptions are not order-book replay and cannot model all gaps, liquidity, funding, swap or market impact.
 
-### Forex (OANDA practice data)
+Use `walk_forward_splits` to keep chronological training and test periods separate. Compare strategies across multiple instruments and market regimes; do not select a strategy on training-period results alone. Require sufficient out-of-sample trades before automated selection. Backtests do not prove future profitability.
 
-Set `OANDA_API_TOKEN` locally (never commit it), then:
+## Execution costs
 
-```python
-from trading_system.market_data.forex_oanda import OandaPracticeMarketData
-provider = OandaPracticeMarketData()
-candles = provider.fetch_candles("EUR_USD", timeframe="H1", limit=100)
-```
+Paper execution defaults are 2 bps spread, 1 bp slippage and 10 bps fee. Backtests charge these estimated costs at entry and exit. Replace defaults with realistic venue/instrument assumptions before interpreting results.
 
-This adapter reads completed midpoint candles from the OANDA practice host and does not submit orders. OANDA access and product availability vary by country; verify access from Zambia before relying on it.
+## Limitations
 
-## Historical storage and collection
-
-`CandleStore` stores OHLCV candles in SQLite. Its composite key (market, symbol, timeframe, timestamp) makes repeated collection idempotent; a corrected candle updates the existing row.
-
-```python
-from trading_system.market_data.collector import MarketDataCollector
-from trading_system.market_data.storage import CandleStore
-from trading_system.market_data.service import MarketDataService
-from trading_system.market_data.crypto_ccxt import CCXTMarketData
-
-service = MarketDataService(crypto=CCXTMarketData("binance"))
-store = CandleStore("market_data.sqlite3")
-collector = MarketDataCollector(service, store)
-collector.collect_once(market="crypto", symbol="BTC/USDT", timeframe="1h", limit=200)
-```
-
-The collector polls on a schedule; it is not a websocket feed or a deployed always-on cloud worker yet.
-
-## Strategy engine
-
-The initial deterministic strategies are intentionally simple and inspectable:
-
-- **Trend-following:** fast/slow EMA alignment and price confirmation.
-- **Momentum:** lookback-period percentage return against a configurable threshold.
-- **Mean reversion:** RSI oversold/overbought thresholds.
-
-Each emitted signal includes a confidence score, a human-readable reason, an ATR-based stop and a configurable reward/risk target. Strategies only analyze supplied candles and never place orders. Insufficient history or no qualifying setup returns no signal. The engine returns candidates independently; it does not silently choose a winner or alter risk settings.
-
-```python
-from trading_system.strategies import StrategyEngine
-signals = StrategyEngine().generate(candles)
-for signal in signals:
-    print(signal.side, signal.confidence, signal.rationale)
-```
-
-Signals are not proof of an edge. Next, the strategies need out-of-sample walk-forward evaluation with realistic costs before any automated selection.
-
-## Paper execution costs
-
-`PaperExecutor` uses configurable one-way basis-point assumptions. Defaults are 2 bps spread, 1 bp slippage and 10 bps fee. Buys fill above and sells below the reference price; fees, spread cost and slippage cost are stored separately in the trade journal. These are configurable approximations, not exchange-specific quotes, order-book simulation or a profitability guarantee.
-
-## Remaining limitations
-
-No dashboard, cloud deployment, websocket ingestion, order-book replay, latency/partial-fill model or live execution is implemented. The OANDA adapter has not been validated with a user's account. Automated tests are configured in GitHub Actions; check the Actions tab for the latest run result.
-
-Never put API keys in source control. Keep `TRADING_MODE=paper`.
+No dashboard, cloud deployment, websocket ingestion, order-book replay, funding/swap model, latency/partial-fill model or live execution is implemented. Keep all trading in paper mode; never commit API keys.
