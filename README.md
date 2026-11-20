@@ -6,7 +6,7 @@ A cloud-first, multi-market research and paper-trading platform for crypto and F
 
 1. Foundation: domain models, deterministic risk gate, paper execution, SQLite journal and API.
 2. Market data: read-only Binance/CCXT crypto candles and OANDA practice Forex candles.
-3. Data operations: polling collector and persistent SQLite OHLCV history.
+3. Data operations: polling collector, persistent SQLite OHLCV history and paginated historical backfills.
 4. Strategy engine: explainable trend-following, momentum and mean-reversion baselines.
 5. **Backtesting:** next-candle entries, conservative stop/target handling, transaction costs and performance metrics.
 6. **Walk-forward evaluation:** rolling out-of-sample strategy comparison with explicit qualification thresholds.
@@ -36,7 +36,7 @@ pytest -q
 
 ## Market data and collection
 
-Crypto OHLCV uses public Binance/CCXT endpoints. Forex OHLCV uses the read-only OANDA practice adapter; access from Zambia must be verified. Neither submits orders. `CandleStore` persists OHLCV in SQLite and `MarketDataCollector` polls providers. It is not yet a deployed always-on worker or websocket feed.
+Crypto OHLCV uses public Binance/CCXT endpoints. Forex OHLCV uses the read-only OANDA practice adapter; access from Zambia must be verified. Neither submits orders. `CandleStore` persists OHLCV in SQLite and `MarketDataCollector` polls providers. `HistoricalDataBackfiller` pages through a requested UTC date range, stores completed candles and safely upserts repeated downloads. CCXT timeframes (for example `1h`) and OANDA timeframes (for example `H1`) are supported. Backfills are bounded by a maximum page count and must be run separately for each market/symbol/timeframe. It is not yet a deployed always-on worker or websocket feed.
 
 ## Strategies
 
