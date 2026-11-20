@@ -52,6 +52,9 @@ class ExecutionResult:
     filled_quantity: float
     average_price: float
     simulated: bool = True
+    fee_paid: float = 0.0
+    spread_cost: float = 0.0
+    slippage_cost: float = 0.0
 
 
 def utc_now() -> datetime:
