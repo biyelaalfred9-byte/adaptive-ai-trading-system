@@ -65,3 +65,48 @@ Paper execution defaults are 2 bps spread, 1 bp slippage and 10 bps fee. Backtes
 ## Limitations
 
 No dashboard, cloud deployment, websocket ingestion, order-book replay, funding/swap model, latency/partial-fill model or live execution is implemented. Keep all trading in paper mode; never commit API keys.
+
+
+## Automated research runner
+
+The config-driven runner evaluates the configured market/symbol/timeframe series already stored in SQLite and writes a JSON report. It compares all three baseline strategies over rolling out-of-sample folds and lists any strategy meeting the configured paper-testing eligibility thresholds. Insufficient history is reported per job instead of stopping the whole batch.
+
+Create a file such as `research.json`:
+
+```json
+{
+  "database": "market_data.sqlite3",
+  "selection_policy": {
+    "min_oos_trades": 30,
+    "min_profitable_fold_ratio": 0.6,
+    "max_worst_fold_drawdown_pct": 5.0,
+    "min_profit_factor": 1.1
+  },
+  "jobs": [
+    {
+      "market": "crypto",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "train_size": 1000,
+      "test_size": 250,
+      "candle_limit": 20000
+    },
+    {
+      "market": "crypto",
+      "symbol": "ETH/USDT",
+      "timeframe": "1h",
+      "train_size": 1000,
+      "test_size": 250,
+      "candle_limit": 20000
+    }
+  ]
+}
+```
+
+Run it with:
+
+```bash
+python -m trading_system.research_runner research.json --output research_report.json
+```
+
+The database must first contain historical candles for each configured series. Backfill each series using `HistoricalDataBackfiller` before running research. Forex jobs can be added when OANDA practice data access is available; credentials are not embedded in the research config. The report is research-only: qualification means eligible for additional paper testing, never automatic strategy activation or live trading. JSON output labels infinite profit factor as the string `"Infinity"` so the report remains standards-compliant.
