@@ -4,13 +4,14 @@ A cloud-first, multi-market research and paper-trading platform for crypto and F
 
 ## Safety-first development stages
 
-1. **Foundation:** domain models, immutable risk configuration, paper execution, SQLite journal and API.
+1. **Foundation:** domain models, deterministic risk gate, paper execution, SQLite trade journal and API.
 2. **Market data:** read-only Binance/CCXT crypto candles and OANDA practice Forex candles.
-3. **Research:** realistic fees/spread/slippage, walk-forward and out-of-sample evaluation.
-4. **Paper trading:** continuous simulation and strategy comparison before any live consideration.
-5. **Live trading:** disabled by default; only after explicit approval, broker eligibility checks and operational review.
+3. **Data operations:** polling collector and persistent SQLite OHLCV history.
+4. **Research and paper trading:** configurable spread, slippage and fee assumptions; walk-forward evaluation.
+5. **Dashboard and cloud deployment:** planned, not yet deployed.
+6. **Live trading:** disabled; no live order-submission adapter exists.
 
-AI may propose and explain signals. It cannot change risk limits or bypass the deterministic risk gate. Market-data adapters are read-only; no live order submission is implemented.
+AI may propose and explain signals. It cannot change risk limits or bypass the deterministic risk gate. Market-data adapters are read-only.
 
 ## Risk defaults
 
@@ -51,7 +52,7 @@ No exchange API key is required for public OHLCV candles. Install the crypto ext
 
 ### Forex (OANDA practice data)
 
-Set `OANDA_API_TOKEN` in your local environment (never commit it), then:
+Set `OANDA_API_TOKEN` locally (never commit it), then:
 
 ```python
 from trading_system.market_data.forex_oanda import OandaPracticeMarketData
@@ -59,10 +60,42 @@ provider = OandaPracticeMarketData()
 candles = provider.fetch_candles("EUR_USD", timeframe="H1", limit=100)
 ```
 
-This adapter calls the OANDA practice host and reads completed midpoint candles only. It does not submit orders. OANDA access and product availability vary by country; verify that you can open and use a practice account from Zambia before relying on it. If not, we will add another eligible broker adapter.
+This adapter reads completed midpoint candles from the OANDA practice host and does not submit orders. OANDA access and product availability vary by country; verify access from Zambia before relying on it.
 
-## Current limitations
+## Historical storage and collection
 
-The CCXT and OANDA adapters retrieve historical candles on demand; there is not yet a continuous streaming collector, persistent candle store, dashboard, cloud deployment, strategy engine or live execution. Paper fills are simplified and do not yet model spread, slippage, fees, latency or partial fills. Do not interpret early backtest/paper results as proof of profitability.
+`CandleStore` stores OHLCV candles in SQLite. Its composite key (market, symbol, timeframe, timestamp) makes repeated collection idempotent; a corrected candle updates the existing row.
+
+```python
+from trading_system.market_data.collector import MarketDataCollector
+from trading_system.market_data.storage import CandleStore
+from trading_system.market_data.service import MarketDataService
+from trading_system.market_data.crypto_ccxt import CCXTMarketData
+
+service = MarketDataService(crypto=CCXTMarketData("binance"))
+store = CandleStore("market_data.sqlite3")
+collector = MarketDataCollector(service, store)
+
+# Run one collection cycle:
+collector.collect_once(market="crypto", symbol="BTC/USDT", timeframe="1h", limit=200)
+
+# Or run a polling worker; stop it by setting the threading.Event:
+# collector.run_forever([{"market": "crypto", "symbol": "BTC/USDT"}], 60, stop_event)
+```
+
+The collector polls on a schedule; it is not a websocket feed or a deployed always-on cloud worker yet.
+
+## Paper execution costs
+
+`PaperExecutor` uses configurable one-way basis-point assumptions. Defaults are 2 bps spread, 1 bp slippage and 10 bps fee. Buys fill above and sells below the reference price; fees, spread cost and slippage cost are stored separately in the trade journal. These are configurable approximations, not exchange-specific quotes, order-book simulation or a profitability guarantee.
+
+```python
+from trading_system.execution.paper import PaperExecutor, PaperCostModel
+executor = PaperExecutor(PaperCostModel(spread_bps=2, slippage_bps=1, fee_bps=10))
+```
+
+## Remaining limitations
+
+No signal-generation/strategy engine, dashboard, cloud deployment, websocket ingestion, order-book replay, latency/partial-fill model or live execution is implemented. The OANDA adapter has not been validated with a user's account. Automated tests are configured in GitHub Actions; check the Actions tab for the latest run result.
 
 Never put API keys in source control. Keep `TRADING_MODE=paper`.
