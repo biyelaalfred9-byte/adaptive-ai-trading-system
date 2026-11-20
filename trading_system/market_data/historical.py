@@ -19,9 +19,13 @@ def timeframe_duration(timeframe: str) -> timedelta:
     """Convert CCXT (1h) or OANDA (H1) timeframe notation to a duration."""
     value = timeframe.strip()
     match = re.fullmatch(r"([1-9][0-9]*)([mhdwMHDW])", value)
-    if not match:
-        raise ValueError(f"Unsupported timeframe: {timeframe}")
-    amount, unit = int(match.group(1)), match.group(2).lower()
+    if match:
+        amount, unit = int(match.group(1)), match.group(2).lower()
+    else:
+        oanda_match = re.fullmatch(r"([MHDW])([1-9][0-9]*)", value)
+        if not oanda_match:
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
+        unit, amount = oanda_match.group(1).lower(), int(oanda_match.group(2))
     seconds = {"m": 60, "h": 3600, "d": 86400, "w": 604800}[unit]
     return timedelta(seconds=amount * seconds)
 
