@@ -1,0 +1,43 @@
+{
+  "database": "market_data.sqlite3",
+  "selection_policy": {
+    "min_oos_trades": 30,
+    "min_profitable_fold_ratio": 0.6,
+    "max_worst_fold_drawdown_pct": 5.0,
+    "min_profit_factor": 1.1
+  },
+  "jobs": [
+    {
+      "market": "crypto",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "train_size": 1000,
+      "test_size": 250,
+      "candle_limit": 20000
+    },
+    {
+      "market": "crypto",
+      "symbol": "ETH/USDT",
+      "timeframe": "1h",
+      "train_size": 1000,
+      "test_size": 250,
+      "candle_limit": 20000
+    },
+    {
+      "market": "crypto",
+      "symbol": "BNB/USDT",
+      "timeframe": "1h",
+      "train_size": 1000,
+      "test_size": 250,
+      "candle_limit": 20000
+    },
+    {
+      "market": "crypto",
+      "symbol": "SOL/USDT",
+      "timeframe": "1h",
+      "train_size": 1000,
+      "test_size": 250,
+      "candle_limit": 20000
+    }
+  ]
+}
