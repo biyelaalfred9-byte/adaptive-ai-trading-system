@@ -1,0 +1,45 @@
+{
+  "database": "market_data.sqlite3",
+  "jobs": [
+    {
+      "market": "crypto",
+      "exchange": "binance",
+      "symbol": "BTC/USDT",
+      "timeframe": "1h",
+      "start": "2024-11-21T00:00:00Z",
+      "end": "2026-11-21T00:00:00Z",
+      "page_limit": 500,
+      "max_pages": 1000
+    },
+    {
+      "market": "crypto",
+      "exchange": "binance",
+      "symbol": "ETH/USDT",
+      "timeframe": "1h",
+      "start": "2024-11-21T00:00:00Z",
+      "end": "2026-11-21T00:00:00Z",
+      "page_limit": 500,
+      "max_pages": 1000
+    },
+    {
+      "market": "crypto",
+      "exchange": "binance",
+      "symbol": "BNB/USDT",
+      "timeframe": "1h",
+      "start": "2024-11-21T00:00:00Z",
+      "end": "2026-11-21T00:00:00Z",
+      "page_limit": 500,
+      "max_pages": 1000
+    },
+    {
+      "market": "crypto",
+      "exchange": "binance",
+      "symbol": "SOL/USDT",
+      "timeframe": "1h",
+      "start": "2024-11-21T00:00:00Z",
+      "end": "2026-11-21T00:00:00Z",
+      "page_limit": 500,
+      "max_pages": 1000
+    }
+  ]
+}
