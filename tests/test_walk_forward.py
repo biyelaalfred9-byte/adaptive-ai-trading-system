@@ -22,7 +22,7 @@ class TestWindowSignal:
     name = "test_window_signal"
 
     def generate(self, history):
-        if len(history) != 4:
+        if len(history) not in (4, 5):
             return None
         last = history[-1]
         return Signal(
