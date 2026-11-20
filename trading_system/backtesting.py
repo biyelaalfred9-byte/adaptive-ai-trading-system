@@ -93,8 +93,13 @@ class Backtester:
     def __init__(self, config: BacktestConfig | None = None):
         self.config = config or BacktestConfig()
 
-    def run(self, candles: Sequence[Candle], strategy: SignalGenerator) -> BacktestResult:
+    def run(self, candles: Sequence[Candle], strategy: SignalGenerator,
+            start_index: int = 0) -> BacktestResult:
         self._validate(candles)
+        if isinstance(start_index, bool) or not isinstance(start_index, int):
+            raise ValueError("start_index must be an integer")
+        if not 0 <= start_index < len(candles):
+            raise ValueError("start_index must be within the candle range")
         equity = self.config.initial_equity
         peak = equity
         max_drawdown = 0.0
@@ -127,7 +132,7 @@ class Backtester:
                         position = None
                 pending = None
 
-            if position is None and index < len(candles) - 1:
+            if position is None and index >= start_index and index < len(candles) - 1:
                 signal = strategy.generate(candles[:index + 1])
                 if (signal is not None and signal.symbol == candle.symbol
                         and signal.market.value == candle.market
