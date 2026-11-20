@@ -15,13 +15,22 @@ class OandaPracticeMarketData:
         self.base_url = base_url.rstrip("/")
 
     def fetch_candles(self, symbol: str, timeframe: str = "H1", limit: int = 100) -> list[Candle]:
+        return self.fetch_candles_since(symbol, timeframe, None, limit)
+
+    def fetch_candles_since(self, symbol: str, timeframe: str,
+                            since, limit: int = 100) -> list[Candle]:
+        """Fetch a page from a timezone-aware timestamp using midpoint prices."""
         if limit < 1 or limit > 5000:
             raise ValueError("limit must be between 1 and 5000")
+        if since is not None and since.tzinfo is None:
+            raise ValueError("since must be timezone-aware")
         instrument = symbol.upper().replace("/", "_")
         headers = {"Authorization": f"Bearer {self.token}"}
         url = f"{self.base_url}/v3/instruments/{instrument}/candles"
-        response = httpx.get(url, params={"granularity": timeframe, "count": limit,
-                                          "price": "M"}, headers=headers, timeout=20.0)
+        params = {"granularity": timeframe, "count": limit, "price": "M"}
+        if since is not None:
+            params["from"] = since.isoformat().replace("+00:00", "Z")
+        response = httpx.get(url, params=params, headers=headers, timeout=20.0)
         response.raise_for_status()
         payload = response.json()
         candles = []
