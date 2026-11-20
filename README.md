@@ -7,11 +7,12 @@ A cloud-first, multi-market research and paper-trading platform for crypto and F
 1. **Foundation:** domain models, deterministic risk gate, paper execution, SQLite trade journal and API.
 2. **Market data:** read-only Binance/CCXT crypto candles and OANDA practice Forex candles.
 3. **Data operations:** polling collector and persistent SQLite OHLCV history.
-4. **Research and paper trading:** configurable spread, slippage and fee assumptions; walk-forward evaluation.
-5. **Dashboard and cloud deployment:** planned, not yet deployed.
-6. **Live trading:** disabled; no live order-submission adapter exists.
+4. **Strategy engine:** explainable trend-following, momentum and mean-reversion baselines.
+5. **Research and paper trading:** configurable spread, slippage and fee assumptions; walk-forward evaluation.
+6. **Dashboard and cloud deployment:** planned, not yet deployed.
+7. **Live trading:** disabled; no live order-submission adapter exists.
 
-AI may propose and explain signals. It cannot change risk limits or bypass the deterministic risk gate. Market-data adapters are read-only.
+AI may propose and explain signals. It cannot change risk limits or bypass the deterministic risk gate. Market-data adapters are read-only. Strategy signals are candidates only; they must pass the independent risk gate before paper execution.
 
 ## Risk defaults
 
@@ -75,27 +76,36 @@ from trading_system.market_data.crypto_ccxt import CCXTMarketData
 service = MarketDataService(crypto=CCXTMarketData("binance"))
 store = CandleStore("market_data.sqlite3")
 collector = MarketDataCollector(service, store)
-
-# Run one collection cycle:
 collector.collect_once(market="crypto", symbol="BTC/USDT", timeframe="1h", limit=200)
-
-# Or run a polling worker; stop it by setting the threading.Event:
-# collector.run_forever([{"market": "crypto", "symbol": "BTC/USDT"}], 60, stop_event)
 ```
 
 The collector polls on a schedule; it is not a websocket feed or a deployed always-on cloud worker yet.
+
+## Strategy engine
+
+The initial deterministic strategies are intentionally simple and inspectable:
+
+- **Trend-following:** fast/slow EMA alignment and price confirmation.
+- **Momentum:** lookback-period percentage return against a configurable threshold.
+- **Mean reversion:** RSI oversold/overbought thresholds.
+
+Each emitted signal includes a confidence score, a human-readable reason, an ATR-based stop and a configurable reward/risk target. Strategies only analyze supplied candles and never place orders. Insufficient history or no qualifying setup returns no signal. The engine returns candidates independently; it does not silently choose a winner or alter risk settings.
+
+```python
+from trading_system.strategies import StrategyEngine
+signals = StrategyEngine().generate(candles)
+for signal in signals:
+    print(signal.side, signal.confidence, signal.rationale)
+```
+
+Signals are not proof of an edge. Next, the strategies need out-of-sample walk-forward evaluation with realistic costs before any automated selection.
 
 ## Paper execution costs
 
 `PaperExecutor` uses configurable one-way basis-point assumptions. Defaults are 2 bps spread, 1 bp slippage and 10 bps fee. Buys fill above and sells below the reference price; fees, spread cost and slippage cost are stored separately in the trade journal. These are configurable approximations, not exchange-specific quotes, order-book simulation or a profitability guarantee.
 
-```python
-from trading_system.execution.paper import PaperExecutor, PaperCostModel
-executor = PaperExecutor(PaperCostModel(spread_bps=2, slippage_bps=1, fee_bps=10))
-```
-
 ## Remaining limitations
 
-No signal-generation/strategy engine, dashboard, cloud deployment, websocket ingestion, order-book replay, latency/partial-fill model or live execution is implemented. The OANDA adapter has not been validated with a user's account. Automated tests are configured in GitHub Actions; check the Actions tab for the latest run result.
+No dashboard, cloud deployment, websocket ingestion, order-book replay, latency/partial-fill model or live execution is implemented. The OANDA adapter has not been validated with a user's account. Automated tests are configured in GitHub Actions; check the Actions tab for the latest run result.
 
 Never put API keys in source control. Keep `TRADING_MODE=paper`.
