@@ -10,7 +10,6 @@ import logging
 import re
 import sqlite3
 import threading
-import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,8 +27,10 @@ logger = logging.getLogger(__name__)
 
 def candle_duration(timeframe: str) -> timedelta:
     """Convert common CCXT/OANDA timeframe labels to a duration."""
+    if timeframe in {"M", "1M"}:
+        return timedelta(days=30)
     value = timeframe.upper()
-    aliases = {"D": "1D", "W": "1W", "M": "1M"}
+    aliases = {"D": "1D", "W": "1W"}
     value = aliases.get(value, value)
     match = re.fullmatch(r"(\d+)([SMHDW])", value)
     if not match:
@@ -69,6 +70,7 @@ class PaperTradingEngine:
         strategies: StrategyEngine | None = None,
         state_path: str = "paper_engine_state.sqlite3",
         history_limit: int = 500,
+        process_existing_history: bool = False,
     ) -> None:
         if history_limit < 50:
             raise ValueError("history_limit must be at least 50 candles")
@@ -82,6 +84,7 @@ class PaperTradingEngine:
         self.coordinator = coordinator
         self.strategies = strategies or StrategyEngine()
         self.history_limit = history_limit
+        self.process_existing_history = process_existing_history
         self.state_path = str(Path(state_path))
         with self._connect() as db:
             db.execute("""
@@ -123,7 +126,13 @@ class PaperTradingEngine:
         for position in self.portfolio.open_positions():
             if position.symbol in marks:
                 continue
-            latest = self.candle_store.get(market, position.symbol, timeframe, limit=1)
+            latest = []
+            for candidate_market in dict.fromkeys((market, "crypto", "forex")):
+                latest = self.candle_store.get(
+                    candidate_market, position.symbol, timeframe, limit=1
+                )
+                if latest:
+                    break
             if latest:
                 marks[position.symbol] = latest[-1].close
         missing = [p.symbol for p in self.portfolio.open_positions()
@@ -156,6 +165,16 @@ class PaperTradingEngine:
             if candle.timestamp.astimezone(timezone.utc) + duration <= now
         ]
         cursor = self._cursor(market, symbol, timeframe)
+        if cursor is None and completed and not self.process_existing_history:
+            # Never turn a historical backfill into hundreds of accidental
+            # paper trades on first launch. Start from the newest closed bar.
+            self._save_cursor(completed[-1])
+            return PaperCycleReport(market, symbol, timeframe, 0, 0, 0, (), ())
+        if cursor is not None and completed and cursor < completed[0].timestamp:
+            raise RuntimeError(
+                "engine cursor is older than retained candle history; "
+                "restore missing candles or explicitly reset the engine state"
+            )
         pending = [c for c in completed if cursor is None or c.timestamp > cursor]
         all_candidates: list[CandidateResult] = []
         all_exits: list[ExitEvent] = []
