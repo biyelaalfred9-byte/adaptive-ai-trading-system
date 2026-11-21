@@ -21,6 +21,19 @@ class Position:
     entry_price: float
     entry_fee: float
     opened_at: datetime
+    stop_loss: float | None = None
+    take_profit: float | None = None
+
+
+@dataclass(frozen=True)
+class ExitEvent:
+    position_id: str
+    symbol: str
+    reason: str
+    exit_price: float
+    exit_fee: float
+    realized_pnl: float
+    closed_at: datetime
 
 
 @dataclass(frozen=True)
@@ -58,8 +71,13 @@ class PaperPortfolio:
                 position_id TEXT PRIMARY KEY, symbol TEXT NOT NULL, side TEXT NOT NULL,
                 quantity REAL NOT NULL, entry_price REAL NOT NULL, entry_fee REAL NOT NULL,
                 opened_at TEXT NOT NULL, status TEXT NOT NULL, exit_price REAL,
-                exit_fee REAL, closed_at TEXT, realized_pnl REAL
+                exit_fee REAL, closed_at TEXT, realized_pnl REAL,
+                stop_loss REAL, take_profit REAL
             )""")
+            columns = {row[1] for row in db.execute("PRAGMA table_info(positions)")}
+            for name in ("stop_loss", "take_profit"):
+                if name not in columns:
+                    db.execute(f"ALTER TABLE positions ADD COLUMN {name} REAL")
             db.execute("""CREATE INDEX IF NOT EXISTS idx_positions_status
                           ON positions(status, opened_at)""")
 
@@ -76,7 +94,8 @@ class PaperPortfolio:
         return value.astimezone(timezone.utc)
 
     def open_position(self, order: OrderRequest, execution: ExecutionResult,
-                      opened_at: datetime | None = None) -> Position:
+                      opened_at: datetime | None = None, stop_loss: float | None = None,
+                      take_profit: float | None = None) -> Position:
         if not execution.simulated:
             raise ValueError("portfolio accepts simulated fills only")
         if execution.status != "filled" or execution.filled_quantity <= 0:
@@ -87,17 +106,26 @@ class PaperPortfolio:
             raise ValueError("execution average price must be positive and finite")
         if not isfinite(execution.fee_paid) or execution.fee_paid < 0:
             raise ValueError("execution fee must be finite and non-negative")
+        if (stop_loss is None) != (take_profit is None):
+            raise ValueError("stop_loss and take_profit must be supplied together")
+        if stop_loss is not None:
+            if not isfinite(stop_loss) or not isfinite(take_profit) or stop_loss <= 0 or take_profit <= 0:
+                raise ValueError("stop-loss and take-profit must be positive and finite")
+            if order.side is Side.BUY and not stop_loss < execution.average_price < take_profit:
+                raise ValueError("long stop/target must bracket the actual entry fill")
+            if order.side is Side.SELL and not take_profit < execution.average_price < stop_loss:
+                raise ValueError("short stop/target must bracket the actual entry fill")
         timestamp = self._utc(opened_at)
         position = Position(str(uuid4()), order.symbol, order.side,
                             execution.filled_quantity, execution.average_price,
-                            execution.fee_paid, timestamp)
+                            execution.fee_paid, timestamp, stop_loss, take_profit)
         with self._connect() as db:
             db.execute("""INSERT INTO positions
-                (position_id,symbol,side,quantity,entry_price,entry_fee,opened_at,status)
-                VALUES(?,?,?,?,?,?,?,'open')""",
+                (position_id,symbol,side,quantity,entry_price,entry_fee,opened_at,status,stop_loss,take_profit)
+                VALUES(?,?,?,?,?,?,?,'open',?,?)""",
                 (position.position_id, position.symbol, position.side.value,
                  position.quantity, position.entry_price, position.entry_fee,
-                 timestamp.isoformat()))
+                 timestamp.isoformat(), stop_loss, take_profit))
         return position
 
     def close_position(self, position_id: str, exit_price: float,
@@ -120,6 +148,51 @@ class PaperPortfolio:
                 closed_at=?,realized_pnl=? WHERE position_id=?""",
                 (exit_price, exit_fee, timestamp.isoformat(), pnl, position_id))
         return pnl
+
+    def process_candle_exits(self, symbol: str, open_price: float, high: float,
+                             low: float, close: float, at: datetime | None = None,
+                             fee_bps: float = 10.0, spread_bps: float = 2.0,
+                             slippage_bps: float = 1.0) -> list[ExitEvent]:
+        """Close stop/target hits from a completed OHLC candle; stop wins if both hit."""
+        prices = (open_price, high, low, close)
+        if any(not isfinite(value) or value <= 0 for value in prices):
+            raise ValueError("OHLC prices must be positive and finite")
+        if high < max(open_price, close, low) or low > min(open_price, close, high):
+            raise ValueError("invalid OHLC candle geometry")
+        if min(fee_bps, spread_bps, slippage_bps) < 0 or not all(
+            isfinite(value) for value in (fee_bps, spread_bps, slippage_bps)
+        ):
+            raise ValueError("execution cost assumptions must be finite and non-negative")
+        timestamp = self._utc(at)
+        with self._connect() as db:
+            rows = db.execute("""SELECT * FROM positions WHERE status='open'
+                                 AND symbol=? AND stop_loss IS NOT NULL
+                                 AND take_profit IS NOT NULL""", (symbol,)).fetchall()
+        events: list[ExitEvent] = []
+        for row in rows:
+            side = Side(row["side"])
+            stop, target = row["stop_loss"], row["take_profit"]
+            if side is Side.BUY:
+                stop_hit, target_hit = low <= stop, high >= target
+            else:
+                stop_hit, target_hit = high >= stop, low <= target
+            if not stop_hit and not target_hit:
+                continue
+            reason = "stop_loss" if stop_hit else "take_profit"
+            level = stop if stop_hit else target
+            if side is Side.BUY:
+                raw_exit = min(open_price, level) if reason == "stop_loss" else max(open_price, level)
+                direction = -1.0
+            else:
+                raw_exit = max(open_price, level) if reason == "stop_loss" else min(open_price, level)
+                direction = 1.0
+            adverse_cost = raw_exit * (spread_bps / 20_000 + slippage_bps / 10_000)
+            exit_price = raw_exit + direction * adverse_cost
+            fee = row["quantity"] * exit_price * fee_bps / 10_000
+            pnl = self.close_position(row["position_id"], exit_price, fee, timestamp)
+            events.append(ExitEvent(row["position_id"], symbol, reason, exit_price,
+                                    fee, pnl, timestamp))
+        return events
 
     def state(self, marks: dict[str, float] | None = None,
               at: datetime | None = None) -> PortfolioState:
@@ -173,4 +246,5 @@ class PaperPortfolio:
             rows = db.execute("SELECT * FROM positions WHERE status='open' ORDER BY opened_at").fetchall()
         return [Position(row["position_id"], row["symbol"], Side(row["side"]),
                          row["quantity"], row["entry_price"], row["entry_fee"],
-                         datetime.fromisoformat(row["opened_at"])) for row in rows]
+                         datetime.fromisoformat(row["opened_at"]), row["stop_loss"],
+                         row["take_profit"]) for row in rows]
