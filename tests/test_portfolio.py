@@ -85,3 +85,64 @@ def test_daily_pnl_only_counts_closed_trades_from_utc_day(tmp_path):
     next_day = datetime(2026, 11, 22, 1, tzinfo=timezone.utc)
 
     assert book.state(at=next_day).daily_pnl == 0
+
+
+
+def test_long_stop_loss_exit_uses_gap_aware_fill_and_costs(tmp_path):
+    book = PaperPortfolio(tmp_path / "portfolio.db", starting_equity=1000)
+    order, fill = make_fill(quantity=1, price=100, fee=0)
+    position = book.open_position(order, fill, T0, stop_loss=95, take_profit=110)
+
+    exits = book.process_candle_exits(
+        "BTC/USDT", open_price=93, high=96, low=92, close=94, at=T0
+    )
+
+    assert len(exits) == 1
+    assert exits[0].reason == "stop_loss"
+    assert exits[0].exit_price < 93
+    assert book.open_positions() == []
+
+
+def test_take_profit_exit_and_stop_first_when_both_touched(tmp_path):
+    book = PaperPortfolio(tmp_path / "portfolio.db", starting_equity=1000)
+    order, fill = make_fill(quantity=1, price=100, fee=0)
+    book.open_position(order, fill, T0, stop_loss=95, take_profit=105)
+
+    exits = book.process_candle_exits(
+        "BTC/USDT", open_price=100, high=106, low=94, close=101, at=T0
+    )
+
+    assert len(exits) == 1
+    assert exits[0].reason == "stop_loss"
+    assert exits[0].realized_pnl < 0
+
+
+def test_short_take_profit_exit(tmp_path):
+    book = PaperPortfolio(tmp_path / "portfolio.db", starting_equity=1000)
+    order, fill = make_fill(Side.SELL, quantity=1, price=100, fee=0)
+    book.open_position(order, fill, T0, stop_loss=105, take_profit=95)
+
+    exits = book.process_candle_exits(
+        "BTC/USDT", open_price=100, high=102, low=94, close=96, at=T0
+    )
+
+    assert len(exits) == 1
+    assert exits[0].reason == "take_profit"
+    assert exits[0].realized_pnl > 0
+
+
+def test_position_without_exit_levels_is_not_auto_closed(tmp_path):
+    book = PaperPortfolio(tmp_path / "portfolio.db", starting_equity=1000)
+    order, fill = make_fill(quantity=1, price=100, fee=0)
+    book.open_position(order, fill, T0)
+
+    assert book.process_candle_exits(
+        "BTC/USDT", open_price=100, high=120, low=80, close=100, at=T0
+    ) == []
+    assert len(book.open_positions()) == 1
+
+
+def test_rejects_invalid_candle_geometry(tmp_path):
+    book = PaperPortfolio(tmp_path / "portfolio.db")
+    with pytest.raises(ValueError, match="geometry"):
+        book.process_candle_exits("BTC/USDT", 100, 99, 95, 98)
