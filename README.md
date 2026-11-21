@@ -192,3 +192,12 @@ results = coordinator.process(
 ```
 
 The coordinator only accepts simulated execution results. It is not a live-trading engine, does not manage open positions after entry, and does not calculate realized daily PnL or portfolio drawdown; those remain portfolio-state responsibilities before any live-capable system could be considered.
+
+
+## Paper portfolio ledger
+
+`PaperPortfolio` is a persistent SQLite ledger for simulated positions. It records paper fills, tracks open positions, closes positions at supplied simulated exit prices, and calculates realized PnL, mark-to-market unrealized PnL, equity, peak equity, drawdown and open-position count. Entry and exit fees are deducted; spread and slippage are reflected in the execution average prices supplied by the paper executor.
+
+Use `risk_snapshot(marks)` to produce the current `RiskSnapshot` for the risk gate. Supply fresh mark prices for open symbols so unrealized PnL and drawdown are not stale. Its daily-loss input is deliberately conservative: realized PnL from trades closed on the current UTC day plus the full mark-to-market PnL on all open positions. This can include PnL accrued before today for positions held overnight. It is a protective approximation, not an exchange-grade daily accounting boundary.
+
+The ledger is paper-only. It does not yet automatically reconcile coordinator fills, discover stop/target exits, model funding/borrow/swap, or stream live prices. No live execution is enabled.
