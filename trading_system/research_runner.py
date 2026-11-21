@@ -6,12 +6,14 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
 
 from trading_system.backtesting import Backtester, BacktestConfig
+from trading_system.execution.paper import PaperCostModel
 from trading_system.market_data.storage import CandleStore
 from trading_system.strategies import (
     MeanReversionStrategy, MomentumStrategy, Strategy, TrendFollowingStrategy,
@@ -58,6 +60,54 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _evaluation_summary(evaluation: Any) -> dict[str, Any]:
+    trades = [trade for fold in evaluation.folds for trade in fold.result.trades]
+    gross = sum(trade.gross_pnl for trade in trades)
+    costs = sum(trade.costs for trade in trades)
+    net = sum(trade.net_pnl for trade in trades)
+    winners = sum(trade.net_pnl for trade in trades if trade.net_pnl > 0)
+    losers = sum(trade.net_pnl for trade in trades if trade.net_pnl < 0)
+    profit_factor = winners / abs(losers) if losers else (float("inf") if winners else 0.0)
+    fold_returns = [fold.result.metrics.total_return_pct for fold in evaluation.folds]
+    return {
+        "trade_count": len(trades),
+        "gross_pnl": gross,
+        "estimated_costs": costs,
+        "net_pnl": net,
+        "costs_as_pct_of_positive_gross": (
+            costs / gross * 100 if gross > 0 else None
+        ),
+        "net_profit_factor": profit_factor,
+        "average_fold_return_pct": (
+            sum(fold_returns) / len(fold_returns) if fold_returns else 0.0
+        ),
+        "profitable_fold_ratio": (
+            sum(value > 0 for value in fold_returns) / len(fold_returns)
+            if fold_returns else 0.0
+        ),
+        "exit_reasons": dict(sorted(Counter(t.exit_reason for t in trades).items())),
+    }
+
+
+def _buy_hold_benchmark(candles: Sequence[Any], evaluation: Any) -> dict[str, Any]:
+    index_by_time = {candle.timestamp: index for index, candle in enumerate(candles)}
+    returns = []
+    for fold in evaluation.folds:
+        start = index_by_time[fold.test_start]
+        end = index_by_time[fold.test_end]
+        first = candles[start]
+        last = candles[end]
+        returns.append((last.close / first.open - 1) * 100)
+    return {
+        "method": "long_only_first_test_open_to_last_test_close",
+        "fold_returns_pct": returns,
+        "average_fold_return_pct": sum(returns) / len(returns) if returns else 0.0,
+        "profitable_fold_ratio": (
+            sum(value > 0 for value in returns) / len(returns) if returns else 0.0
+        ),
+    }
+
+
 class ResearchRunner:
     """Evaluate configured market series from a local CandleStore."""
 
@@ -75,6 +125,46 @@ class ResearchRunner:
         names = [strategy.name for strategy in self.strategies]
         if not names or len(names) != len(set(names)):
             raise ValueError("strategies must be non-empty and uniquely named")
+
+    def _diagnostics(self, candles: Sequence[Any], job: ResearchJob,
+                     strategy: Strategy, evaluation: Any) -> dict[str, Any]:
+        base_config = self.evaluator.backtester.config
+        current_costs = base_config.costs
+        zero_costs = PaperCostModel(0, 0, 0)
+        half_costs = PaperCostModel(
+            current_costs.spread_bps / 2,
+            current_costs.slippage_bps / 2,
+            current_costs.fee_bps / 2,
+        )
+        scenarios = {
+            "zero_cost": zero_costs,
+            "half_configured_cost": half_costs,
+            "configured_cost": current_costs,
+        }
+        sensitivity = {}
+        for name, costs in scenarios.items():
+            if name == "configured_cost":
+                scenario_evaluation = evaluation
+            else:
+                config = BacktestConfig(
+                    initial_equity=base_config.initial_equity,
+                    position_fraction=base_config.position_fraction,
+                    costs=costs,
+                    allow_short=base_config.allow_short,
+                )
+                evaluator = WalkForwardEvaluator(
+                    Backtester(config), policy=self.evaluator.policy
+                )
+                scenario_evaluation, = evaluator.evaluate(
+                    candles, [strategy], job.train_size, job.test_size
+                )
+            sensitivity[name] = _evaluation_summary(scenario_evaluation)
+
+        return {
+            "pnl_and_exits": _evaluation_summary(evaluation),
+            "cost_sensitivity": sensitivity,
+            "buy_hold_benchmark": _buy_hold_benchmark(candles, evaluation),
+        }
 
     def run(self, jobs: Sequence[ResearchJob]) -> dict[str, Any]:
         if not jobs:
@@ -103,16 +193,20 @@ class ResearchRunner:
                         candles, self.strategies, job.train_size, job.test_size
                     )
                     entry["status"] = "evaluated"
-                    entry["strategies"] = [
-                        _json_safe(asdict(evaluation)) for evaluation in evaluations
-                    ]
+                    entry["strategies"] = []
+                    for strategy, evaluation in zip(self.strategies, evaluations):
+                        strategy_report = asdict(evaluation)
+                        strategy_report["diagnostics"] = self._diagnostics(
+                            candles, job, strategy, evaluation
+                        )
+                        entry["strategies"].append(_json_safe(strategy_report))
                 except ValueError as exc:
                     entry["status"] = "evaluation_error"
                     entry["message"] = str(exc)
             results.append(entry)
 
         return {
-            "report_version": 1,
+            "report_version": 2,
             "mode": "historical_research_only",
             "live_trading_enabled": False,
             "strategy_activation": "manual_paper_testing_only",
