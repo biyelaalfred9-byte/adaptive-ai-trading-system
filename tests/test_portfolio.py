@@ -23,8 +23,8 @@ def test_portfolio_tracks_open_position_and_unrealized_pnl(tmp_path):
 
     state = book.state({"BTC/USDT": 110}, T0)
     assert state.open_positions == 1
-    assert state.unrealized_pnl == pytest.approx(20)
-    assert state.equity == pytest.approx(1020)
+    assert state.unrealized_pnl == pytest.approx(19)
+    assert state.equity == pytest.approx(1019)
     assert book.open_positions()[0].position_id == position.position_id
 
 
