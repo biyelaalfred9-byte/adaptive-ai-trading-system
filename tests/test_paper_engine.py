@@ -122,3 +122,23 @@ def test_timeframe_duration_supports_ccxt_and_oanda_labels():
     assert candle_duration("H4") == timedelta(hours=4)
     assert candle_duration("D") == timedelta(days=1)
     assert candle_duration("1M") == timedelta(days=30)
+
+
+
+def test_first_launch_does_not_replay_backfilled_history(tmp_path):
+    candles = [
+        candle(T0),
+        candle(T0 + timedelta(hours=1)),
+        candle(T0 + timedelta(hours=2)),
+    ]
+    engine, portfolio = make_engine(tmp_path, candles)
+    engine.process_existing_history = False
+
+    report = engine.process_subscription(
+        market="crypto", symbol="BTC/USDT", timeframe="1h",
+        now=T0 + timedelta(hours=4),
+    )
+
+    assert report.candles_processed == 0
+    assert report.entries_filled == 0
+    assert portfolio.open_positions() == []
