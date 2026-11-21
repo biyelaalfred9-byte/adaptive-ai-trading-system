@@ -60,3 +60,25 @@ def test_research_job_validates_fold_and_history_sizes():
     with pytest.raises(ValueError):
         ResearchJob("crypto", "BTC/USDT", "1h", train_size=40, test_size=20,
                     candle_limit=50)
+
+
+def test_runner_adds_cost_sensitivity_exit_and_benchmark_diagnostics(tmp_path):
+    store = CandleStore(str(tmp_path / "diagnostics.sqlite3"))
+    seed_store(store)
+    report = ResearchRunner(store, strategies=[AlwaysNoSignal()]).run([
+        ResearchJob("crypto", "BTC/USDT", "1h", train_size=40, test_size=20)
+    ])
+
+    strategy = report["jobs"][0]["strategies"][0]
+    diagnostics = strategy["diagnostics"]
+    assert report["report_version"] == 2
+    assert diagnostics["pnl_and_exits"]["trade_count"] == 0
+    assert diagnostics["pnl_and_exits"]["exit_reasons"] == {}
+    assert set(diagnostics["cost_sensitivity"]) == {
+        "zero_cost", "half_configured_cost", "configured_cost"
+    }
+    assert diagnostics["buy_hold_benchmark"]["method"].startswith("long_only")
+    assert len(diagnostics["buy_hold_benchmark"]["fold_returns_pct"]) == len(
+        strategy["folds"]
+    )
+    json.dumps(report, allow_nan=False)
