@@ -32,6 +32,9 @@ def candle_duration(timeframe: str) -> timedelta:
     value = timeframe.upper()
     aliases = {"D": "1D", "W": "1W"}
     value = aliases.get(value, value)
+    oanda_prefix = re.fullmatch(r"([SMHDW])(\d+)", value)
+    if oanda_prefix:
+        value = oanda_prefix.group(2) + oanda_prefix.group(1)
     match = re.fullmatch(r"(\d+)([SMHDW])", value)
     if not match:
         raise ValueError(f"unsupported candle timeframe: {timeframe}")
