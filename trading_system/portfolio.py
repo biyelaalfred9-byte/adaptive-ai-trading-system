@@ -147,7 +147,8 @@ class PaperPortfolio:
             if not isfinite(mark) or mark <= 0:
                 raise ValueError(f"invalid mark price for {row['symbol']}")
             direction = 1.0 if row["side"] == Side.BUY.value else -1.0
-            unrealized += (mark - row["entry_price"]) * row["quantity"] * direction
+            unrealized += ((mark - row["entry_price"]) * row["quantity"] * direction
+                           - row["entry_fee"])
 
         realized = float(closed)
         equity = starting + realized + unrealized
@@ -155,7 +156,10 @@ class PaperPortfolio:
         with self._connect() as db:
             db.execute("UPDATE portfolio_meta SET value=? WHERE key='peak_equity'", (peak,))
         drawdown = max(0.0, (peak - equity) / peak) if peak > 0 else 1.0
-        return PortfolioState(starting, realized, unrealized, equity, float(daily),
+        # Conservative daily stop input: realized PnL closed today plus the full
+        # mark-to-market PnL (including entry fees) on every currently open trade.
+        daily_pnl = float(daily) + unrealized
+        return PortfolioState(starting, realized, unrealized, equity, daily_pnl,
                               peak, drawdown, len(open_rows))
 
     def risk_snapshot(self, marks: dict[str, float] | None = None,
