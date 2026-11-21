@@ -201,3 +201,6 @@ The coordinator only accepts simulated execution results. It is not a live-tradi
 Use `risk_snapshot(marks)` to produce the current `RiskSnapshot` for the risk gate. Supply fresh mark prices for open symbols so unrealized PnL and drawdown are not stale. Its daily-loss input is deliberately conservative: realized PnL from trades closed on the current UTC day plus the full mark-to-market PnL on all open positions. This can include PnL accrued before today for positions held overnight. It is a protective approximation, not an exchange-grade daily accounting boundary.
 
 The ledger is paper-only. It does not yet automatically reconcile coordinator fills, discover stop/target exits, model funding/borrow/swap, or stream live prices. No live execution is enabled.
+
+
+When constructed with `portfolio=PaperPortfolio(...)`, the paper coordinator automatically records each successful simulated fill as an open portfolio position. The portfolio then supplies updated risk snapshots through `portfolio.risk_snapshot(marks)`; callers must provide current mark prices and handle exit conditions/close fills explicitly.
