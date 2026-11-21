@@ -7,6 +7,7 @@ from trading_system.domain import ExecutionResult, Market, OrderRequest, Side, S
 from trading_system.execution.coordinator import PaperTradingCoordinator
 from trading_system.execution.paper import PaperExecutor
 from trading_system.risk import RiskSnapshot
+from trading_system.portfolio import PaperPortfolio
 
 
 def make_signal(side=Side.BUY, confidence=0.9):
@@ -113,3 +114,17 @@ def test_risk_sizing_respects_configured_fraction():
 
     assert result.approved
     assert result.order.quantity == pytest.approx(25.0)
+
+
+
+def test_coordinator_persists_filled_position_to_portfolio(tmp_path):
+    portfolio = PaperPortfolio(tmp_path / "portfolio.db", starting_equity=10_000)
+    coordinator = PaperTradingCoordinator(RecordingExecutor(), portfolio=portfolio)
+    result = coordinator.process(
+        [make_signal()], {"BTC/USDT": 100}, make_snapshot()
+    )[0]
+
+    assert result.approved
+    state = portfolio.state({"BTC/USDT": 100})
+    assert state.open_positions == 1
+    assert portfolio.open_positions()[0].symbol == "BTC/USDT"
