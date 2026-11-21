@@ -107,7 +107,8 @@ class PaperTradingCoordinator:
                 ))
                 continue
             if self.portfolio is not None:
-                self.portfolio.open_position(order, execution, signal.created_at)
+                self.portfolio.open_position(order, execution, signal.created_at,
+                                             signal.stop_loss, signal.take_profit)
             if self.journal is not None:
                 self.journal.record(order, execution)
 
