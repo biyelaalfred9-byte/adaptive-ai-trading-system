@@ -204,3 +204,10 @@ The ledger is paper-only. It does not yet automatically reconcile coordinator fi
 
 
 When constructed with `portfolio=PaperPortfolio(...)`, the paper coordinator automatically records each successful simulated fill as an open portfolio position. The portfolio then supplies updated risk snapshots through `portfolio.risk_snapshot(marks)`; callers must provide current mark prices and handle exit conditions/close fills explicitly.
+
+
+### Automatic paper exits
+
+Positions opened through `PaperTradingCoordinator` now persist their strategy stop-loss and take-profit levels. After each completed candle, call `portfolio.process_candle_exits(...)` with that symbol's OHLC values. The monitor closes triggered positions, charges estimated exit spread, slippage and fees, and records realized PnL. If a candle touches both stop and target, the conservative assumption is that the stop executes first. Gap-through stops are filled at the candle open before adverse estimated costs.
+
+This is a candle-driven simulation, not a real-time stop order. The caller must supply completed candles in chronological order and fresh marks for portfolio valuation. It does not yet run its own market-data polling loop or scheduler.
