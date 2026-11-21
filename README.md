@@ -158,3 +158,10 @@ The runner reports per-series success/failure and candle counts, continues to la
 Research report version 2 adds per-market/per-strategy diagnostics without changing strategy signals, risk limits or qualification thresholds. It reports aggregate gross PnL, estimated costs, net PnL, costs relative to positive gross PnL, net profit factor and exit-reason counts. It also reruns each strategy on the same chronological folds with zero, half-configured and configured transaction costs, then compares the results with a simple long-only buy-and-hold return over each test fold.
 
 Cost scenarios are diagnostic counterfactuals, not executable fee quotes. The zero-cost result is an upper-bound diagnostic, not a tradable result. The buy-and-hold benchmark does not include fees, funding or risk adjustment and is not directly equivalent to a strategy that can short or hold cash. All diagnostics remain historical research; they do not activate strategies or enable live trading.
+
+
+## Execution adapter boundary
+
+The internal `ExecutionAdapter` protocol defines the narrow interface for order execution implementations. The existing `PaperExecutor` satisfies this contract and remains the only implemented adapter. Strategy modules do not receive an execution adapter and cannot submit orders.
+
+Any future execution coordinator must evaluate every candidate through the deterministic `RiskGate` before creating an `OrderRequest`. A live adapter is not implemented, enabled, or authorized by adding this interface. Live trading remains disabled.
