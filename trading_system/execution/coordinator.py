@@ -15,6 +15,7 @@ from trading_system.domain import ExecutionResult, OrderRequest, Side, Signal
 from trading_system.execution.base import ExecutionAdapter
 from trading_system.journal import TradeJournal
 from trading_system.risk import RiskGate, RiskSnapshot
+from trading_system.portfolio import PaperPortfolio
 
 
 @dataclass(frozen=True)
@@ -35,11 +36,13 @@ class PaperTradingCoordinator:
         journal: TradeJournal | None = None,
         risk_config: RiskConfig | None = None,
         risk_gate: RiskGate | None = None,
+        portfolio: PaperPortfolio | None = None,
     ) -> None:
         self.executor = executor
         self.journal = journal
         self.risk_config = risk_config or RiskConfig()
         self.risk_gate = risk_gate or RiskGate(self.risk_config)
+        self.portfolio = portfolio
 
     def process(
         self,
@@ -103,6 +106,8 @@ class PaperTradingCoordinator:
                     order=order, execution=execution,
                 ))
                 continue
+            if self.portfolio is not None:
+                self.portfolio.open_position(order, execution, signal.created_at)
             if self.journal is not None:
                 self.journal.record(order, execution)
 
