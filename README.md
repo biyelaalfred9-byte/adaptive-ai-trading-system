@@ -152,3 +152,9 @@ python -m trading_system.backfill_runner backfill.json --output backfill_report.
 ```
 
 The runner reports per-series success/failure and candle counts, continues to later jobs after a job fails, and exits non-zero if any job failed. Backfill jobs are bounded by explicit dates, page size and maximum pages. OANDA Forex jobs use `market: "forex"`, an OANDA instrument such as `EUR_USD`, and OANDA granularity such as `H1`; set `OANDA_API_TOKEN` in the environment first. Do not put tokens in JSON or commit credentials. Re-running a range is safe because SQLite upserts existing candle timestamps.
+
+### Research diagnostics and cost sensitivity
+
+Research report version 2 adds per-market/per-strategy diagnostics without changing strategy signals, risk limits or qualification thresholds. It reports aggregate gross PnL, estimated costs, net PnL, costs relative to positive gross PnL, net profit factor and exit-reason counts. It also reruns each strategy on the same chronological folds with zero, half-configured and configured transaction costs, then compares the results with a simple long-only buy-and-hold return over each test fold.
+
+Cost scenarios are diagnostic counterfactuals, not executable fee quotes. The zero-cost result is an upper-bound diagnostic, not a tradable result. The buy-and-hold benchmark does not include fees, funding or risk adjustment and is not directly equivalent to a strategy that can short or hold cash. All diagnostics remain historical research; they do not activate strategies or enable live trading.
