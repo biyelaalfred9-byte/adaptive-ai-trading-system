@@ -10,8 +10,9 @@ A cloud-first, multi-market research and paper-trading platform for crypto and F
 4. Strategy engine: explainable trend-following, momentum and mean-reversion baselines.
 5. **Backtesting:** next-candle entries, conservative stop/target handling, transaction costs and performance metrics.
 6. **Walk-forward evaluation:** rolling out-of-sample strategy comparison with explicit qualification thresholds.
-7. Dashboard and cloud deployment: planned, not yet deployed.
-8. Live trading: disabled; no live order-submission adapter exists.
+7. **Continuous paper engine:** local polling, next-candle-open simulated entries, deterministic risk checks, portfolio valuation and automatic candle-based exits.
+8. Dashboard and cloud deployment: planned, not yet deployed.
+9. Live trading: disabled; no live order-submission adapter exists.
 
 AI may propose and explain signals. It cannot change risk limits or bypass the deterministic risk gate. Market-data adapters are read-only. Backtests are research simulations, not broker execution.
 
@@ -36,7 +37,7 @@ pytest -q
 
 ## Market data and collection
 
-Crypto OHLCV uses public Binance/CCXT endpoints. Forex OHLCV uses the read-only OANDA practice adapter; access from Zambia must be verified. Neither submits orders. `CandleStore` persists OHLCV in SQLite and `MarketDataCollector` polls providers. `HistoricalDataBackfiller` pages through a requested UTC date range, stores completed candles and safely upserts repeated downloads. CCXT timeframes (for example `1h`) and OANDA timeframes (for example `H1`) are supported. Backfills are bounded by a maximum page count and must be run separately for each market/symbol/timeframe. It is not yet a deployed always-on worker or websocket feed.
+Crypto OHLCV uses public Binance/CCXT endpoints. Forex OHLCV uses the read-only OANDA practice adapter; access from Zambia must be verified. Neither submits orders. `CandleStore` persists OHLCV in SQLite and `MarketDataCollector` polls providers. The continuous paper engine runs this polling locally as a worker; it is not yet deployed as a cloud service or websocket feed. `HistoricalDataBackfiller` pages through a requested UTC date range, stores completed candles and safely upserts repeated downloads. CCXT timeframes (for example `1h`) and OANDA timeframes (for example `H1`) are supported. Backfills are bounded by a maximum page count and must be run separately for each market/symbol/timeframe. Historical collection and the paper engine remain local processes unless you deploy them yourself.
 
 ## Strategies
 
@@ -191,7 +192,7 @@ results = coordinator.process(
 )
 ```
 
-The coordinator only accepts simulated execution results. It is not a live-trading engine, does not manage open positions after entry, and does not calculate realized daily PnL or portfolio drawdown; those remain portfolio-state responsibilities before any live-capable system could be considered.
+The coordinator only accepts simulated execution results. It is not a live-trading engine. Open-position valuation, daily PnL and drawdown are maintained by the paper portfolio.
 
 
 ## Paper portfolio ledger
@@ -200,7 +201,7 @@ The coordinator only accepts simulated execution results. It is not a live-tradi
 
 Use `risk_snapshot(marks)` to produce the current `RiskSnapshot` for the risk gate. Supply fresh mark prices for open symbols so unrealized PnL and drawdown are not stale. Its daily-loss input is deliberately conservative: realized PnL from trades closed on the current UTC day plus the full mark-to-market PnL on all open positions. This can include PnL accrued before today for positions held overnight. It is a protective approximation, not an exchange-grade daily accounting boundary.
 
-The ledger is paper-only. It does not yet automatically reconcile coordinator fills, discover stop/target exits, model funding/borrow/swap, or stream live prices. No live execution is enabled.
+The ledger is paper-only. Funding/borrow/swap, order-book replay and exchange-grade daily accounting are not modeled. No live execution is enabled.
 
 
 When constructed with `portfolio=PaperPortfolio(...)`, the paper coordinator automatically records each successful simulated fill as an open portfolio position. The portfolio then supplies updated risk snapshots through `portfolio.risk_snapshot(marks)`; callers must provide current mark prices and handle exit conditions/close fills explicitly.
@@ -210,4 +211,27 @@ When constructed with `portfolio=PaperPortfolio(...)`, the paper coordinator aut
 
 Positions opened through `PaperTradingCoordinator` now persist their strategy stop-loss and take-profit levels. After each completed candle, call `portfolio.process_candle_exits(...)` with that symbol's OHLC values. The monitor closes triggered positions, charges estimated exit spread, slippage and fees, and records realized PnL. If a candle touches both stop and target, the conservative assumption is that the stop executes first. Gap-through stops are filled at the candle open before adverse estimated costs.
 
-This is a candle-driven simulation, not a real-time stop order. The caller must supply completed candles in chronological order and fresh marks for portfolio valuation. It does not yet run its own market-data polling loop or scheduler.
+This is a candle-driven simulation, not a real-time stop order. Completed candles must be supplied chronologically; the continuous paper engine now handles polling and portfolio marks locally.
+
+
+### Continuous paper-trading runner
+
+The continuous engine connects the read-only market-data collector, strategy engine, deterministic risk gate, paper executor, SQLite portfolio and automatic exits. It processes completed candles only. A signal is calculated from the previous candle history and, if approved, is simulated at the next candle's open. The strongest baseline candidate is selected per symbol and the engine avoids stacking multiple positions in the same symbol. Stop/target checks then use the entry candle's OHLC with stop-first handling when both levels are touched.
+
+**Important startup behavior:** on first launch, the engine records the latest completed candle as its starting cursor and does not replay historical backfill as if it were live. It begins processing newly completed candles after that point. The cursor is persisted in `paper_engine_state.sqlite3`; if the cursor falls behind the retained candle history, the engine stops that subscription rather than silently skipping missing candles. Keep the market, portfolio, journal and engine-state SQLite files between restarts.
+
+Install and start on Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -m trading_system.paper_trading_runner configs/paper-trading.crypto.example.json
+```
+
+Run one polling cycle (useful for checking connectivity/configuration):
+
+```powershell
+.\.venv\Scripts\python.exe -m trading_system.paper_trading_runner configs/paper-trading.crypto.example.json --once
+```
+
+Stop the continuous worker with `Ctrl+C`. The example config monitors BTC/USDT, ETH/USDT, BNB/USDT and SOL/USDT on the 1-hour timeframe. It uses the existing local `market_data.sqlite3` file and paper portfolio/journal databases. Do not delete the engine-state database while retaining the portfolio, as that would reset the candle cursor. The initial cycle will only establish cursors; the engine will wait for the next completed 1-hour candles before processing new entries.
+
+The worker is paper-only and has no live order adapter. It does not guarantee profitability or emulate exchange order books, partial fills, funding, spread changes, latency or market impact. Use realistic cost assumptions and inspect the journal and portfolio throughout an extended paper run before considering any later stage. Forex subscriptions require the read-only OANDA practice token in `OANDA_API_TOKEN`; OANDA access from Zambia still needs to be verified.
