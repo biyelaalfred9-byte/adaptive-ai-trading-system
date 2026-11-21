@@ -165,3 +165,30 @@ Cost scenarios are diagnostic counterfactuals, not executable fee quotes. The ze
 The internal `ExecutionAdapter` protocol defines the narrow interface for order execution implementations. The existing `PaperExecutor` satisfies this contract and remains the only implemented adapter. Strategy modules do not receive an execution adapter and cannot submit orders.
 
 Any future execution coordinator must evaluate every candidate through the deterministic `RiskGate` before creating an `OrderRequest`. A live adapter is not implemented, enabled, or authorized by adding this interface. Live trading remains disabled.
+
+
+## Risk-gated paper coordinator
+
+`PaperTradingCoordinator` is the orchestration boundary for candidate signals. It validates that the stop and target are on the correct side of the reference price, asks the deterministic `RiskGate` for approval, sizes quantity from the configured risk fraction and stop distance, and caps notional exposure at 1x equity. Successful simulated fills can be recorded in `TradeJournal`. When processing a batch, each filled position consumes an available position slot before the next candidate is evaluated.
+
+Example:
+
+```python
+from trading_system.execution.coordinator import PaperTradingCoordinator
+from trading_system.execution.paper import PaperExecutor
+from trading_system.risk import RiskSnapshot
+
+coordinator = PaperTradingCoordinator(PaperExecutor())
+results = coordinator.process(
+    signals,
+    reference_prices={"BTC/USDT": 60_000},
+    snapshot=RiskSnapshot(
+        equity=10_000,
+        daily_pnl=0,
+        current_drawdown=0,
+        open_positions=0,
+    ),
+)
+```
+
+The coordinator only accepts simulated execution results. It is not a live-trading engine, does not manage open positions after entry, and does not calculate realized daily PnL or portfolio drawdown; those remain portfolio-state responsibilities before any live-capable system could be considered.
