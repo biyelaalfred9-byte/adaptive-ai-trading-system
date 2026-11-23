@@ -8,7 +8,7 @@ __pycache__
 *.db
 .env
 .env.*
-! .env.example
+!.env.example
 tests
 docs
 research_report.json
