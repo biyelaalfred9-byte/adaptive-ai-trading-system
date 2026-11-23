@@ -142,3 +142,40 @@ def test_first_launch_does_not_replay_backfilled_history(tmp_path):
     assert report.candles_processed == 0
     assert report.entries_filled == 0
     assert portfolio.open_positions() == []
+
+
+
+def test_engine_tries_next_candidate_if_best_signal_is_invalid_at_next_open(tmp_path):
+    from trading_system.domain import Market, Side, Signal
+
+    class TwoCandidateEngine:
+        def generate(self, candles):
+            if len(candles) < 2:
+                return []
+            timestamp = candles[-1].timestamp
+            return [
+                Signal(Market.CRYPTO, "BTC/USDT", Side.BUY, 0.95,
+                       101.0, 120.0, "gap-invalid candidate", timestamp),
+                Signal(Market.CRYPTO, "BTC/USDT", Side.BUY, 0.80,
+                       90.0, 120.0, "valid fallback candidate", timestamp),
+            ]
+
+    candles = [
+        candle(T0, close=102),
+        candle(T0 + timedelta(hours=1), open_price=100),
+        candle(T0 + timedelta(hours=2), open_price=100),
+    ]
+    engine, portfolio = make_engine(tmp_path, candles)
+    engine.strategies = TwoCandidateEngine()
+
+    report = engine.process_subscription(
+        market="crypto", symbol="BTC/USDT", timeframe="1h",
+        now=T0 + timedelta(hours=4),
+    )
+
+    assert report.entries_filled == 1
+    assert len(report.candidates) == 2
+    assert report.candidates[0].approved is False
+    assert "bracket price" in report.candidates[0].reason
+    assert report.candidates[1].approved is True
+    assert len(portfolio.open_positions()) == 1
