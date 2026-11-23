@@ -12,7 +12,7 @@ services:
       PYTHONUNBUFFERED: "1"
       OANDA_API_TOKEN: ${OANDA_API_TOKEN:-}
     volumes:
-      - paper-trading-data:/data
+      - ./cloud-data:/data
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
@@ -20,7 +20,3 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-
-volumes:
-  paper-trading-data:
-    name: adaptive-paper-trading-data
