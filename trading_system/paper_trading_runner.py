@@ -87,11 +87,23 @@ def main() -> None:
         reports = engine.run_once(config["subscriptions"])
         for report in reports:
             logging.info(
-                "%s %s %s candles=%d signals=%d entries=%d exits=%d",
+                "%s %s %s candles=%d signals=%d entries=%d exits=%d skipped_open_position=%s",
                 report.market, report.symbol, report.timeframe,
                 report.candles_processed, report.signals_generated,
-                report.entries_filled, len(report.exits),
+                report.entries_filled, len(report.exits), report.skipped_existing_position,
             )
+            for candidate in report.candidates:
+                logging.info(
+                    "PAPER CANDIDATE %s %s confidence=%.3f approved=%s reason=%s | %s",
+                    candidate.signal.symbol, candidate.signal.side.value,
+                    candidate.signal.confidence, candidate.approved,
+                    candidate.reason, candidate.signal.rationale,
+                )
+            for event in report.exits:
+                logging.info(
+                    "PAPER EXIT %s reason=%s price=%.8f realized_pnl=%.4f",
+                    event.symbol, event.reason, event.exit_price, event.realized_pnl,
+                )
         return
     logging.info("Starting paper-only engine. Press Ctrl+C to stop.")
     try:
