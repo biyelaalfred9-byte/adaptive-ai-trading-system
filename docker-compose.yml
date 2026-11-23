@@ -1,0 +1,26 @@
+services:
+  paper-trader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: adaptive-ai-trading-system:paper
+    container_name: adaptive-paper-trader
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    environment:
+      PYTHONUNBUFFERED: "1"
+      OANDA_API_TOKEN: ${OANDA_API_TOKEN:-}
+    volumes:
+      - paper-trading-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  paper-trading-data:
+    name: adaptive-paper-trading-data
