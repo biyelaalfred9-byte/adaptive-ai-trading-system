@@ -1,0 +1,19 @@
+{
+  "market_database": "/data/market_data.sqlite3",
+  "portfolio_database": "/data/paper_portfolio.sqlite3",
+  "journal_database": "/data/trading_journal.sqlite3",
+  "engine_state_database": "/data/paper_engine_state.sqlite3",
+  "starting_equity": 1000.0,
+  "crypto_exchange": "binance",
+  "interval_seconds": 60,
+  "history_limit": 500,
+  "spread_bps": 2.0,
+  "slippage_bps": 1.0,
+  "fee_bps": 10.0,
+  "subscriptions": [
+    {"market": "crypto", "symbol": "BTC/USDT", "timeframe": "1h", "limit": 100},
+    {"market": "crypto", "symbol": "ETH/USDT", "timeframe": "1h", "limit": 100},
+    {"market": "crypto", "symbol": "BNB/USDT", "timeframe": "1h", "limit": 100},
+    {"market": "crypto", "symbol": "SOL/USDT", "timeframe": "1h", "limit": 100}
+  ]
+}
