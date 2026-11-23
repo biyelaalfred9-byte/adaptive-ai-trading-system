@@ -264,3 +264,14 @@ The container runs as an unprivileged user, has a read-only root filesystem, dro
 
 Before deploying to a paid host, build and run the image locally, verify that logs show successful market polling, and confirm that the SQLite files persist across container recreation. Cloud hosting is not yet provisioned by this repository: a cloud VM, Docker Engine/Compose, firewall policy, SSH access and a backup plan must be set up separately. Never put exchange secrets in the image, Compose file, or Git.
 
+
+
+## Zero-cost scheduled paper trading (GitHub Actions)
+
+The public repository includes an optional hourly GitHub Actions runner. It wakes shortly after each UTC hour, fetches public Binance candles, runs one paper-trading cycle, and exits. It does not need your laptop to stay on and it never submits live orders.
+
+Enable it from the repository's **Actions** tab if GitHub asks you to enable workflows. Select **Scheduled Paper Trading** and use **Run workflow** for the first manual test. The schedule then runs at minute 17 of each hour (UTC). GitHub may delay scheduled workflows, so this is not a real-time or always-on trading service.
+
+The four SQLite files are restored and saved using GitHub Actions cache under `state/`. Cache persistence is best-effort, not a durable database: caches can be evicted or unavailable. If state is lost, the engine's first run safely sets a fresh candle cursor instead of replaying the historical backfill, but the previous paper positions and journal will not be recovered. Download/export state regularly if you need durable records.
+
+This workflow is intended for this public repository, where standard GitHub-hosted runner usage is free. Keep it public to retain that free runner allowance; private-repository usage can consume the account's included Actions compute quota. Check GitHub's current [Actions billing documentation](https://docs.github.com/en/actions/concepts/billing-and-usage). No API keys or payment details are required for public Binance candle collection.
