@@ -235,3 +235,32 @@ Run one polling cycle (useful for checking connectivity/configuration):
 Stop the continuous worker with `Ctrl+C`. The example config monitors BTC/USDT, ETH/USDT, BNB/USDT and SOL/USDT on the 1-hour timeframe. It uses the existing local `market_data.sqlite3` file and paper portfolio/journal databases. Do not delete the engine-state database while retaining the portfolio, as that would reset the candle cursor. The initial cycle will only establish cursors; the engine will wait for the next completed 1-hour candles before processing new entries.
 
 The worker is paper-only and has no live order adapter. It does not guarantee profitability or emulate exchange order books, partial fills, funding, spread changes, latency or market impact. Use realistic cost assumptions and inspect the journal and portfolio throughout an extended paper run before considering any later stage. Forex subscriptions require the read-only OANDA practice token in `OANDA_API_TOKEN`; OANDA access from Zambia still needs to be verified.
+
+## Docker cloud deployment (paper trading only)
+
+The repository includes a Docker image and Compose service for running the paper-trading worker on a single Linux VPS or cloud VM. The worker is deliberately not exposed as a public web service; it polls public Binance market data and writes its SQLite state to a persistent Docker volume.
+
+Build and start:
+
+```bash
+docker compose up -d --build
+```
+
+Follow logs:
+
+```bash
+docker compose logs -f paper-trader
+```
+
+Stop the worker without deleting its persistent data:
+
+```bash
+docker compose down
+```
+
+Restart after a host reboot: Docker Compose sets `restart: unless-stopped`. The named volume `adaptive-paper-trading-data` stores market candles, portfolio, journal and engine cursors under `/data`. Do not run multiple replicas against this SQLite volume. Back up the volume before upgrades or maintenance; container image replacement does not back up or migrate data.
+
+The container runs as an unprivileged user, has a read-only root filesystem, drops Linux capabilities and does not publish inbound ports. It remains paper-only and has no live order adapter. The Docker image installs the crypto extra only. Forex is not enabled in the cloud example; if added later, inject the OANDA practice token through the host environment rather than committing it.
+
+Before deploying to a paid host, build and run the image locally, verify that logs show successful market polling, and confirm that the SQLite files persist across container recreation. Cloud hosting is not yet provisioned by this repository: a cloud VM, Docker Engine/Compose, firewall policy, SSH access and a backup plan must be set up separately. Never put exchange secrets in the image, Compose file, or Git.
+
