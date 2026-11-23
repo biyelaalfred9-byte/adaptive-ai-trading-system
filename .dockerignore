@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+__pycache__
+.pytest_cache
+*.py[cod]
+*.sqlite3
+*.db
+.env
+.env.*
+! .env.example
+tests
+docs
+research_report.json
+backfill_report.json
