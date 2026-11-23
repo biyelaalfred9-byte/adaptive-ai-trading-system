@@ -59,6 +59,7 @@ class PaperCycleReport:
     entries_filled: int
     exits: tuple[ExitEvent, ...]
     candidates: tuple[CandidateResult, ...]
+    skipped_existing_position: bool = False
 
 
 class PaperTradingEngine:
@@ -183,6 +184,7 @@ class PaperTradingEngine:
         all_exits: list[ExitEvent] = []
         signals_count = 0
         entries_count = 0
+        skipped_existing_position = False
 
         for candle in pending:
             history = [item for item in completed if item.timestamp < candle.timestamp]
@@ -193,21 +195,23 @@ class PaperTradingEngine:
             already_open = any(
                 position.symbol == symbol for position in self.portfolio.open_positions()
             )
-            if signals and not already_open:
-                # A single strongest candidate prevents the three baselines from
-                # opening duplicate positions on the same market candle.
-                selected = max(signals, key=lambda signal: signal.confidence)
-                selected = replace(selected, created_at=candle.timestamp)
+            if signals and already_open:
+                skipped_existing_position = True
+            elif signals:
+                # Try candidates in confidence order. A gap can invalidate the
+                # best signal's stop/target relative to the next open; do not let
+                # that one rejection hide a lower-ranked valid candidate.
                 marks = self._marks(market, symbol, timeframe, candle, at_open=True)
                 snapshot = self.portfolio.risk_snapshot(marks, at=candle.timestamp)
-                results = self.coordinator.process(
-                    [selected], {symbol: candle.open}, snapshot
-                )
-                all_candidates.extend(results)
-                entries_count += sum(
-                    result.approved and result.execution is not None
-                    for result in results
-                )
+                for candidate in sorted(signals, key=lambda item: item.confidence, reverse=True):
+                    selected = replace(candidate, created_at=candle.timestamp)
+                    results = self.coordinator.process(
+                        [selected], {symbol: candle.open}, snapshot
+                    )
+                    all_candidates.extend(results)
+                    if results and results[0].approved and results[0].execution is not None:
+                        entries_count += 1
+                        break
 
             costs = self.coordinator.executor.costs
             all_exits.extend(self.portfolio.process_candle_exits(
@@ -222,6 +226,7 @@ class PaperTradingEngine:
         return PaperCycleReport(
             market, symbol, timeframe, len(pending), signals_count,
             entries_count, tuple(all_exits), tuple(all_candidates),
+            skipped_existing_position,
         )
 
     def run_once(self, subscriptions: Sequence[dict],
@@ -248,11 +253,24 @@ class PaperTradingEngine:
                 try:
                     report = self.process_subscription(**subscription)
                     logger.info(
-                        "%s %s %s: candles=%d signals=%d entries=%d exits=%d",
+                        "%s %s %s: candles=%d signals=%d entries=%d exits=%d skipped_open_position=%s",
                         report.market, report.symbol, report.timeframe,
                         report.candles_processed, report.signals_generated,
                         report.entries_filled, len(report.exits),
+                        report.skipped_existing_position,
                     )
+                    for candidate in report.candidates:
+                        logger.info(
+                            "PAPER CANDIDATE %s %s confidence=%.3f approved=%s reason=%s | %s",
+                            candidate.signal.symbol, candidate.signal.side.value,
+                            candidate.signal.confidence, candidate.approved,
+                            candidate.reason, candidate.signal.rationale,
+                        )
+                    for event in report.exits:
+                        logger.info(
+                            "PAPER EXIT %s reason=%s price=%.8f realized_pnl=%.4f",
+                            event.symbol, event.reason, event.exit_price, event.realized_pnl,
+                        )
                 except Exception:
                     logger.exception("Paper engine cycle failed for %s", subscription)
             stop.wait(interval_seconds)
