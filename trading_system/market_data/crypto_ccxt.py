@@ -4,7 +4,7 @@ from .models import Candle
 class CCXTMarketData:
     """Public, read-only OHLCV adapter. No exchange keys or order methods."""
 
-    def __init__(self, exchange_id: str = "binance"):
+    def __init__(self, exchange_id: str = "binance", public_api_url: str | None = None):
         try:
             import ccxt
         except ImportError as exc:
@@ -13,6 +13,13 @@ class CCXTMarketData:
         if exchange_class is None:
             raise ValueError(f"Unsupported CCXT exchange: {exchange_id}")
         self.exchange = exchange_class({"enableRateLimit": True})
+        if public_api_url:
+            # Allow a market-data-only endpoint (e.g. Binance Vision) for read-only jobs.
+            api_urls = self.exchange.urls.get("api", {})
+            if isinstance(api_urls, dict) and "public" in api_urls:
+                api_urls["public"] = public_api_url.rstrip("/")
+            else:
+                raise ValueError(f"Exchange {exchange_id} does not expose a configurable public API URL")
         self.exchange.load_markets()
 
     def fetch_candles(self, symbol: str, timeframe: str = "1h", limit: int = 100) -> list[Candle]:
