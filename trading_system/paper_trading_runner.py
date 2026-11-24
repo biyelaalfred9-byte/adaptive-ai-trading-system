@@ -90,10 +90,16 @@ def main() -> None:
         reports = engine.run_once(config["subscriptions"])
         for report in reports:
             logging.info(
-                "%s %s %s candles=%d signals=%d entries=%d exits=%d skipped_open_position=%s",
+                "%s %s %s stored=%d available=%d completed=%d processed=%d "
+                "latest=%s latest_completed=%s cursor=%s seeded=%s "
+                "signals=%d entries=%d exits=%d skipped_open_position=%s",
                 report.market, report.symbol, report.timeframe,
-                report.candles_processed, report.signals_generated,
-                report.entries_filled, len(report.exits), report.skipped_existing_position,
+                report.candles_stored, report.candles_available,
+                report.candles_completed, report.candles_processed,
+                report.latest_candle_at, report.latest_completed_at,
+                report.cursor_at, report.cursor_seeded,
+                report.signals_generated, report.entries_filled,
+                len(report.exits), report.skipped_existing_position,
             )
             for candidate in report.candidates:
                 logging.info(
