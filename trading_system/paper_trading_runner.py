@@ -42,7 +42,10 @@ def build_engine(config: dict[str, Any]) -> PaperTradingEngine:
     forex = None
     if needs_crypto:
         from trading_system.market_data.crypto_ccxt import CCXTMarketData
-        crypto = CCXTMarketData(exchange_id=config.get("crypto_exchange", "binance"))
+        crypto = CCXTMarketData(
+            exchange_id=config.get("crypto_exchange", "binance"),
+            public_api_url=config.get("crypto_public_api_url"),
+        )
     if needs_forex:
         from trading_system.market_data.forex_oanda import OandaPracticeMarketData
         forex = OandaPracticeMarketData(token=os.getenv("OANDA_API_TOKEN"))
