@@ -60,6 +60,13 @@ class PaperCycleReport:
     exits: tuple[ExitEvent, ...]
     candidates: tuple[CandidateResult, ...]
     skipped_existing_position: bool = False
+    candles_stored: int = 0
+    candles_available: int = 0
+    candles_completed: int = 0
+    latest_candle_at: datetime | None = None
+    latest_completed_at: datetime | None = None
+    cursor_at: datetime | None = None
+    cursor_seeded: bool = False
 
 
 class PaperTradingEngine:
@@ -157,7 +164,7 @@ class PaperTradingEngine:
         if now.tzinfo is None:
             raise ValueError("now must be timezone-aware")
         now = now.astimezone(timezone.utc)
-        self.collector.collect_once(
+        stored_count = self.collector.collect_once(
             market=market, symbol=symbol, timeframe=timeframe, limit=limit
         )
         candles = self.candle_store.get(
@@ -169,11 +176,29 @@ class PaperTradingEngine:
             if candle.timestamp.astimezone(timezone.utc) + duration <= now
         ]
         cursor = self._cursor(market, symbol, timeframe)
+        latest_candle = candles[-1].timestamp if candles else None
+        latest_completed = completed[-1].timestamp if completed else None
+        cursor_seeded = False
         if cursor is None and completed and not self.process_existing_history:
             # Never turn a historical backfill into hundreds of accidental
             # paper trades on first launch. Start from the newest closed bar.
             self._save_cursor(completed[-1])
-            return PaperCycleReport(market, symbol, timeframe, 0, 0, 0, (), ())
+            cursor = completed[-1].timestamp
+            cursor_seeded = True
+            logger.info(
+                "PAPER ENGINE INITIALIZED %s %s %s: stored=%d available=%d "
+                "completed=%d latest=%s cursor_seeded_at=%s; historical bars skipped",
+                market, symbol, timeframe, stored_count, len(candles), len(completed),
+                latest_candle, cursor,
+            )
+            return PaperCycleReport(
+                market=market, symbol=symbol, timeframe=timeframe,
+                candles_processed=0, signals_generated=0, entries_filled=0,
+                exits=(), candidates=(), candles_stored=stored_count,
+                candles_available=len(candles), candles_completed=len(completed),
+                latest_candle_at=latest_candle, latest_completed_at=latest_completed,
+                cursor_at=cursor, cursor_seeded=cursor_seeded,
+            )
         if cursor is not None and completed and cursor < completed[0].timestamp:
             raise RuntimeError(
                 "engine cursor is older than retained candle history; "
@@ -223,11 +248,26 @@ class PaperTradingEngine:
             self.portfolio.state(marks, at=candle.timestamp)
             self._save_cursor(candle)
 
-        return PaperCycleReport(
-            market, symbol, timeframe, len(pending), signals_count,
-            entries_count, tuple(all_exits), tuple(all_candidates),
-            skipped_existing_position,
+        final_cursor = self._cursor(market, symbol, timeframe)
+        report = PaperCycleReport(
+            market=market, symbol=symbol, timeframe=timeframe,
+            candles_processed=len(pending), signals_generated=signals_count,
+            entries_filled=entries_count, exits=tuple(all_exits),
+            candidates=tuple(all_candidates),
+            skipped_existing_position=skipped_existing_position,
+            candles_stored=stored_count, candles_available=len(candles),
+            candles_completed=len(completed), latest_candle_at=latest_candle,
+            latest_completed_at=latest_completed, cursor_at=final_cursor,
         )
+        logger.info(
+            "PAPER ENGINE DATA %s %s %s: stored=%d available=%d completed=%d "
+            "pending_processed=%d latest=%s latest_completed=%s cursor=%s",
+            market, symbol, timeframe, report.candles_stored,
+            report.candles_available, report.candles_completed,
+            report.candles_processed, report.latest_candle_at,
+            report.latest_completed_at, report.cursor_at,
+        )
+        return report
 
     def run_once(self, subscriptions: Sequence[dict],
                  now: datetime | None = None) -> list[PaperCycleReport]:
