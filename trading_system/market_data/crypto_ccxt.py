@@ -12,7 +12,11 @@ class CCXTMarketData:
         exchange_class = getattr(ccxt, exchange_id, None)
         if exchange_class is None:
             raise ValueError(f"Unsupported CCXT exchange: {exchange_id}")
-        self.exchange = exchange_class({"enableRateLimit": True})
+        self.exchange = exchange_class({
+            "enableRateLimit": True,
+            # This system trades spot symbols only; avoid CCXT loading futures markets.
+            "options": {"defaultType": "spot"},
+        })
         if public_api_url:
             # Allow a market-data-only endpoint (e.g. Binance Vision) for read-only jobs.
             api_urls = self.exchange.urls.get("api", {})
