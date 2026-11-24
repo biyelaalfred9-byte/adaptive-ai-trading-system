@@ -15,7 +15,12 @@ class CCXTMarketData:
         self.exchange = exchange_class({
             "enableRateLimit": True,
             # This system trades spot symbols only; avoid CCXT loading futures markets.
-            "options": {"defaultType": "spot"},
+            "options": {
+                "defaultType": "spot",
+                # CCXT otherwise discovers spot, linear, and inverse markets;
+                # futures discovery hits fapi.binance.com and fails on some runners.
+                "fetchMarkets": ["spot"],
+            },
         })
         if public_api_url:
             # Allow a market-data-only endpoint (e.g. Binance Vision) for read-only jobs.
