@@ -141,6 +141,13 @@ def test_first_launch_does_not_replay_backfilled_history(tmp_path):
 
     assert report.candles_processed == 0
     assert report.entries_filled == 0
+    assert report.candles_stored == 3
+    assert report.candles_available == 3
+    assert report.candles_completed == 3
+    assert report.latest_candle_at == T0 + timedelta(hours=2)
+    assert report.latest_completed_at == T0 + timedelta(hours=2)
+    assert report.cursor_at == T0 + timedelta(hours=2)
+    assert report.cursor_seeded is True
     assert portfolio.open_positions() == []
 
 
