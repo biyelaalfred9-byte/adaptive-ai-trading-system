@@ -36,5 +36,6 @@
       "limit": 100
     }
   ],
-  "crypto_public_api_url": "https://data-api.binance.vision/api/v3"
+  "crypto_public_api_url": "https://data-api.binance.vision/api/v3",
+  "max_holding_period_hours": 12
 }
