@@ -393,11 +393,11 @@ class PaperTradingEngine:
         stop = stop_event or threading.Event()
         logger.info("Paper trading engine started with %d subscriptions", len(subscriptions))
         while not stop.is_set():
-            for subscription in subscriptions:
-                if stop.is_set():
-                    break
-                try:
-                    report = self.process_subscription(**subscription)
+            try:
+                # Use the same portfolio-wide exit-first allocator in local
+                # continuous mode and scheduled one-shot mode.
+                reports = self.run_once(subscriptions)
+                for report in reports:
                     logger.info(
                         "%s %s %s: candles=%d signals=%d entries=%d exits=%d skipped_open_position=%s",
                         report.market, report.symbol, report.timeframe,
@@ -417,6 +417,6 @@ class PaperTradingEngine:
                             "PAPER EXIT %s reason=%s price=%.8f realized_pnl=%.4f",
                             event.symbol, event.reason, event.exit_price, event.realized_pnl,
                         )
-                except Exception:
-                    logger.exception("Paper engine cycle failed for %s", subscription)
+            except Exception:
+                logger.exception("Portfolio-wide paper engine cycle failed")
             stop.wait(interval_seconds)
