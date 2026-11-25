@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import isfinite
 from pathlib import Path
 from uuid import uuid4
@@ -152,8 +152,13 @@ class PaperPortfolio:
     def process_candle_exits(self, symbol: str, open_price: float, high: float,
                              low: float, close: float, at: datetime | None = None,
                              fee_bps: float = 10.0, spread_bps: float = 2.0,
-                             slippage_bps: float = 1.0) -> list[ExitEvent]:
-        """Close stop/target hits from a completed OHLC candle; stop wins if both hit."""
+                             slippage_bps: float = 1.0,
+                             max_holding_period: timedelta | None = None) -> list[ExitEvent]:
+        """Close stop/target hits, or positions that exceed their holding limit.
+
+        Stop-loss takes precedence over take-profit; either price exit takes
+        precedence over the time exit. A time exit is simulated at candle close.
+        """
         prices = (open_price, high, low, close)
         if any(not isfinite(value) or value <= 0 for value in prices):
             raise ValueError("OHLC prices must be positive and finite")
@@ -163,29 +168,40 @@ class PaperPortfolio:
             isfinite(value) for value in (fee_bps, spread_bps, slippage_bps)
         ):
             raise ValueError("execution cost assumptions must be finite and non-negative")
+        if max_holding_period is not None and max_holding_period <= timedelta(0):
+            raise ValueError("max_holding_period must be positive")
         timestamp = self._utc(at)
         with self._connect() as db:
             rows = db.execute("""SELECT * FROM positions WHERE status='open'
-                                 AND symbol=? AND stop_loss IS NOT NULL
-                                 AND take_profit IS NOT NULL""", (symbol,)).fetchall()
+                                 AND symbol=?""", (symbol,)).fetchall()
         events: list[ExitEvent] = []
         for row in rows:
             side = Side(row["side"])
             stop, target = row["stop_loss"], row["take_profit"]
-            if side is Side.BUY:
-                stop_hit, target_hit = low <= stop, high >= target
-            else:
-                stop_hit, target_hit = high >= stop, low <= target
-            if not stop_hit and not target_hit:
+            stop_hit = target_hit = False
+            if stop is not None and target is not None:
+                if side is Side.BUY:
+                    stop_hit, target_hit = low <= stop, high >= target
+                else:
+                    stop_hit, target_hit = high >= stop, low <= target
+            opened_at = datetime.fromisoformat(row["opened_at"])
+            time_expired = (
+                max_holding_period is not None
+                and timestamp >= self._utc(opened_at) + max_holding_period
+            )
+            if not stop_hit and not target_hit and not time_expired:
                 continue
-            reason = "stop_loss" if stop_hit else "take_profit"
-            level = stop if stop_hit else target
-            if side is Side.BUY:
-                raw_exit = min(open_price, level) if reason == "stop_loss" else max(open_price, level)
-                direction = -1.0
+            if stop_hit or target_hit:
+                reason = "stop_loss" if stop_hit else "take_profit"
+                level = stop if stop_hit else target
+                if side is Side.BUY:
+                    raw_exit = min(open_price, level) if reason == "stop_loss" else max(open_price, level)
+                else:
+                    raw_exit = max(open_price, level) if reason == "stop_loss" else min(open_price, level)
             else:
-                raw_exit = max(open_price, level) if reason == "stop_loss" else min(open_price, level)
-                direction = 1.0
+                reason = "max_holding_period"
+                raw_exit = close
+            direction = -1.0 if side is Side.BUY else 1.0
             adverse_cost = raw_exit * (spread_bps / 20_000 + slippage_bps / 10_000)
             exit_price = raw_exit + direction * adverse_cost
             fee = row["quantity"] * exit_price * fee_bps / 10_000
