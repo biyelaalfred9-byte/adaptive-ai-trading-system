@@ -162,6 +162,7 @@ class PaperTradingEngine:
     def process_subscription(
         self, *, market: str, symbol: str, timeframe: str = "1h",
         limit: int = 100, now: datetime | None = None,
+        _deferred_entries: list | None = None,
     ) -> PaperCycleReport:
         """Collect once and process every newly completed candle in order."""
         now = now or datetime.now(timezone.utc)
@@ -220,27 +221,33 @@ class PaperTradingEngine:
             signals = self.strategies.generate(history) if len(history) >= 2 else []
             signals_count += len(signals)
 
-            # One position per symbol: avoid stacking correlated baseline signals.
-            already_open = any(
-                position.symbol == symbol for position in self.portfolio.open_positions()
-            )
-            if signals and already_open:
-                skipped_existing_position = True
-            elif signals:
-                # Try candidates in confidence order. A gap can invalidate the
-                # best signal's stop/target relative to the next open; do not let
-                # that one rejection hide a lower-ranked valid candidate.
+            # Queue entries when run_once is coordinating several markets.
+            # This lets every market process its exits before any market takes
+            # a newly freed portfolio slot.
+            if signals and _deferred_entries is not None:
                 marks = self._marks(market, symbol, timeframe, candle, at_open=True)
-                snapshot = self.portfolio.risk_snapshot(marks, at=candle.timestamp)
-                for candidate in sorted(signals, key=lambda item: item.confidence, reverse=True):
-                    selected = replace(candidate, created_at=candle.timestamp)
-                    results = self.coordinator.process(
-                        [selected], {symbol: candle.open}, snapshot
-                    )
-                    all_candidates.extend(results)
-                    if results and results[0].approved and results[0].execution is not None:
-                        entries_count += 1
-                        break
+                _deferred_entries.append({
+                    "market": market, "symbol": symbol, "candle": candle,
+                    "signals": signals, "marks": marks,
+                })
+            elif signals:
+                already_open = any(
+                    position.symbol == symbol for position in self.portfolio.open_positions()
+                )
+                if already_open:
+                    skipped_existing_position = True
+                else:
+                    marks = self._marks(market, symbol, timeframe, candle, at_open=True)
+                    snapshot = self.portfolio.risk_snapshot(marks, at=candle.timestamp)
+                    for candidate in sorted(signals, key=lambda item: item.confidence, reverse=True):
+                        selected = replace(candidate, created_at=candle.timestamp)
+                        results = self.coordinator.process(
+                            [selected], {symbol: candle.open}, snapshot
+                        )
+                        all_candidates.extend(results)
+                        if results and results[0].approved and results[0].execution is not None:
+                            entries_count += 1
+                            break
 
             costs = self.coordinator.executor.costs
             all_exits.extend(self.portfolio.process_candle_exits(
@@ -276,11 +283,65 @@ class PaperTradingEngine:
 
     def run_once(self, subscriptions: Sequence[dict],
                  now: datetime | None = None) -> list[PaperCycleReport]:
+        """Process all market exits first, then allocate free slots globally."""
         if not subscriptions:
             raise ValueError("at least one market subscription is required")
-        reports = []
-        for subscription in subscriptions:
-            reports.append(self.process_subscription(**subscription, now=now))
+        deferred: list[dict] = []
+        reports = [
+            self.process_subscription(
+                **subscription, now=now, _deferred_entries=deferred
+            )
+            for subscription in subscriptions
+        ]
+
+        # Replay the candidate queue in candle-time order; within the same
+        # candle, strongest confidence gets first access to the shared slots.
+        deferred.sort(key=lambda item: (
+            item["candle"].timestamp,
+            -max(signal.confidence for signal in item["signals"]),
+            item["symbol"],
+        ))
+        candidates_by_report: dict[int, list[CandidateResult]] = {}
+        entries_by_report: dict[int, int] = {}
+        skipped_by_report: dict[int, bool] = {}
+        for item in deferred:
+            symbol = item["symbol"]
+            report_index = next(
+                (i for i, report in enumerate(reports)
+                 if report.market == item["market"] and report.symbol == symbol),
+                None,
+            )
+            if report_index is None:
+                continue
+            if any(position.symbol == symbol for position in self.portfolio.open_positions()):
+                skipped_by_report[report_index] = True
+                continue
+
+            candle = item["candle"]
+            snapshot = self.portfolio.risk_snapshot(
+                item["marks"], at=candle.timestamp
+            )
+            for candidate in sorted(
+                item["signals"], key=lambda signal: signal.confidence, reverse=True
+            ):
+                selected = replace(candidate, created_at=candle.timestamp)
+                results = self.coordinator.process(
+                    [selected], {symbol: candle.open}, snapshot
+                )
+                candidates_by_report.setdefault(report_index, []).extend(results)
+                if results and results[0].approved and results[0].execution is not None:
+                    entries_by_report[report_index] = entries_by_report.get(report_index, 0) + 1
+                    break
+
+        for index, report in enumerate(reports):
+            reports[index] = replace(
+                report,
+                entries_filled=report.entries_filled + entries_by_report.get(index, 0),
+                candidates=report.candidates + tuple(candidates_by_report.get(index, [])),
+                skipped_existing_position=(
+                    report.skipped_existing_position or skipped_by_report.get(index, False)
+                ),
+            )
         return reports
 
     def run_forever(self, subscriptions: Sequence[dict], interval_seconds: int = 60,
