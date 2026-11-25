@@ -68,6 +68,7 @@ def build_engine(config: dict[str, Any]) -> PaperTradingEngine:
         collector, candle_store, portfolio, coordinator,
         state_path=config.get("engine_state_database", "paper_engine_state.sqlite3"),
         history_limit=int(config.get("history_limit", 500)),
+        max_holding_period_hours=float(config.get("max_holding_period_hours", 12)),
     )
 
 
