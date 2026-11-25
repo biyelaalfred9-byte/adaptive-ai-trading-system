@@ -1,9 +1,11 @@
 name: Scheduled Paper Trading
 
 on:
+  push:
+    branches: [main]
   schedule:
-    # Run shortly after each hourly candle closes (UTC).
-    - cron: "17 * * * *"
+    # Poll every 15 minutes so missed/delayed hourly triggers are less disruptive.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
