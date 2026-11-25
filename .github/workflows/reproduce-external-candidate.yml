@@ -1,0 +1,66 @@
+name: Reproduce external Freqtrade candidate
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/reproduce-external-candidate.yml"
+      - "research/freqtrade-candidate-config.json"
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout this project
+        uses: actions/checkout@v4
+
+      - name: Get the published strategy source
+        run: git clone --depth 1 https://github.com/freqtrade/freqtrade-strategies.git external/freqtrade-strategies
+
+      - name: Prepare data and result folders
+        run: mkdir -p user_data/data/binance user_data/backtest_results user_data/strategies
+
+      - name: Download public Binance spot candles (no API keys)
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/user_data:/freqtrade/user_data" \
+            freqtradeorg/freqtrade:stable download-data \
+            --exchange binance \
+            --pairs ADA/USDT AVAX/USDT BNB/USDT BTC/USDT DOGE/USDT DOT/USDT ETH/USDT LINK/USDT SOL/USDT XRP/USDT \
+            --timeframes 4h \
+            --timerange 20230501-20250530 \
+            --datadir /freqtrade/user_data/data/binance
+
+      - name: Run the candidate's published backtest
+        run: |
+          cp external/freqtrade-strategies/user_data/strategies/berlinguyinca/ReinforcedAverageStrategy.py user_data/strategies/
+          cp research/freqtrade-candidate-config.json user_data/config.json
+          docker run --rm \
+            -v "${{ github.workspace }}/user_data:/freqtrade/user_data" \
+            freqtradeorg/freqtrade:stable backtesting \
+            --config /freqtrade/user_data/config.json \
+            --strategy-path /freqtrade/user_data/strategies \
+            --strategy ReinforcedAverageStrategy \
+            --timeframe 4h \
+            --timerange 20230601-20250530 \
+            --dry-run-wallet 1000 \
+            --stake-amount 200 \
+            --max-open-trades 5 \
+            --fee 0.001 \
+            --cache none \
+            --export trades
+
+      - name: Preserve backtest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reinforced-average-backtest
+          path: |
+            user_data/backtest_results/
+            user_data/logs/
+          if-no-files-found: warn
+          retention-days: 14
