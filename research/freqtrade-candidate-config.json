@@ -41,7 +41,14 @@
         }
       }
     },
-    "ccxt_async_config": {},
+    "ccxt_async_config": {
+      "urls": {
+        "api": {
+          "public": "https://data-api.binance.vision/api/v3",
+          "private": "https://api.binance.com/api/v3"
+        }
+      }
+    },
     "pair_whitelist": [
       "ADA/USDT",
       "AVAX/USDT",
