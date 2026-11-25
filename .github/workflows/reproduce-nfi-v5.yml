@@ -2,6 +2,10 @@ name: NFI V5 independent reproduction (paper research only)
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/reproduce-nfi-v5.yml"
+      - "research/download_nfi_data.py"
 
 permissions:
   contents: read
