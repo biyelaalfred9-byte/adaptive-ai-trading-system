@@ -146,3 +146,42 @@ def test_rejects_invalid_candle_geometry(tmp_path):
     book = PaperPortfolio(tmp_path / "portfolio.db")
     with pytest.raises(ValueError, match="geometry"):
         book.process_candle_exits("BTC/USDT", 100, 99, 95, 98)
+
+
+
+def test_max_holding_period_closes_position_at_candle_close(tmp_path):
+    from datetime import timedelta
+
+    book = PaperPortfolio(tmp_path / "portfolio.db", starting_equity=1000)
+    order, fill = make_fill(quantity=1, price=100, fee=0)
+    position = book.open_position(order, fill, T0, stop_loss=90, take_profit=120)
+
+    exits = book.process_candle_exits(
+        "BTC/USDT", open_price=101, high=103, low=99, close=102,
+        at=T0 + timedelta(hours=12),
+        max_holding_period=timedelta(hours=12),
+    )
+
+    assert len(exits) == 1
+    assert exits[0].position_id == position.position_id
+    assert exits[0].reason == "max_holding_period"
+    assert exits[0].exit_price < 102  # adverse spread/slippage applied
+    assert book.open_positions() == []
+
+
+def test_max_holding_period_closes_positions_without_stop_or_target(tmp_path):
+    from datetime import timedelta
+
+    book = PaperPortfolio(tmp_path / "portfolio.db", starting_equity=1000)
+    order, fill = make_fill(quantity=1, price=100, fee=0)
+    book.open_position(order, fill, T0)
+
+    exits = book.process_candle_exits(
+        "BTC/USDT", 100, 102, 99, 101,
+        at=T0 + timedelta(hours=12),
+        max_holding_period=timedelta(hours=12),
+    )
+
+    assert len(exits) == 1
+    assert exits[0].reason == "max_holding_period"
+    assert book.open_positions() == []
