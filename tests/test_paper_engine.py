@@ -214,3 +214,63 @@ def test_engine_closes_open_position_after_configured_12_hours(tmp_path):
     )
     assert all(item.position_id != position.position_id
                for item in portfolio.open_positions())
+
+
+def test_run_once_processes_all_exits_before_globally_ranking_entries(tmp_path):
+    symbols = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT"]
+    confidence = {
+        "BTC/USDT": 0.71, "ETH/USDT": 0.72,
+        "BNB/USDT": 0.91, "SOL/USDT": 0.88,
+    }
+
+    class MultiSymbolProvider:
+        def fetch_candles(self, symbol, timeframe="1h", limit=100):
+            return [
+                Candle("crypto", symbol, timeframe, T0 + timedelta(hours=h),
+                       100, 103, 98, 102, 10)
+                for h in range(14)
+            ]
+
+    class MultiSymbolStrategies:
+        def generate(self, candles):
+            if len(candles) < 2:
+                return []
+            symbol = candles[-1].symbol
+            return [Signal(
+                Market.CRYPTO, symbol, Side.BUY, confidence[symbol],
+                90, 120, "ranked test signal", candles[-1].timestamp,
+            )]
+
+    store = CandleStore(tmp_path / "multi-candles.db")
+    service = MarketDataService(crypto=MultiSymbolProvider())
+    collector = MarketDataCollector(service, store)
+    portfolio = PaperPortfolio(tmp_path / "multi-portfolio.db", starting_equity=10_000)
+    coordinator = PaperTradingCoordinator(PaperExecutor(), portfolio=portfolio)
+    engine = PaperTradingEngine(
+        collector, store, portfolio, coordinator,
+        strategies=MultiSymbolStrategies(),
+        state_path=str(tmp_path / "multi-engine.db"),
+        process_existing_history=True,
+        max_holding_period_hours=12,
+    )
+
+    # Fill both slots with aged positions that must expire during this cycle.
+    for symbol in symbols[:2]:
+        order = OrderRequest(symbol, Side.BUY, 1, 100)
+        fill = ExecutionResult(
+            f"old-{symbol}", "filled", 1, 100, simulated=True, fee_paid=0,
+        )
+        portfolio.open_position(order, fill, T0, 90, 120)
+
+    subscriptions = [
+        {"market": "crypto", "symbol": symbol, "timeframe": "1h", "limit": 100}
+        for symbol in symbols
+    ]
+    reports = engine.run_once(subscriptions, now=T0 + timedelta(hours=15))
+
+    # Old positions must close before any new market is allowed to consume a slot.
+    exited = {event.symbol for report in reports for event in report.exits}
+    assert exited == set(symbols[:2])
+    opened = {position.symbol for position in portfolio.open_positions()}
+    assert opened == {"BNB/USDT", "SOL/USDT"}
+    assert sum(report.entries_filled for report in reports) == 2
