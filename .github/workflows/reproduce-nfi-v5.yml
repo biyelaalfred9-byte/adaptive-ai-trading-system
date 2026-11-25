@@ -1,0 +1,64 @@
+name: NFI V5 independent reproduction (paper research only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare isolated Freqtrade research environment
+        run: |
+          mkdir -p user_data/strategies user_data/data/binance
+          cat > user_data/config.json <<'JSON'
+          {
+            "max_open_trades": 5,
+            "stake_currency": "USDT",
+            "stake_amount": 200,
+            "tradable_balance_ratio": 0.99,
+            "fiat_display_currency": "USD",
+            "dry_run": true,
+            "dry_run_wallet": 1000,
+            "cancel_open_orders_on_exit": false,
+            "trading_mode": "spot",
+            "margin_mode": "",
+            "exchange": {
+              "name": "binance",
+              "key": "",
+              "secret": "",
+              "ccxt_config": {},
+              "ccxt_async_config": {},
+              "pair_whitelist": ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT"],
+              "pair_blacklist": []
+            },
+            "pairlists": [{"method": "StaticPairList"}],
+            "timeframe": "5m",
+            "fee": 0.001
+          }
+          JSON
+      - name: Download public 5m and 1h candles (Binance Vision only)
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable             sh -lc "pip install --quiet pandas pyarrow && python research/download_nfi_data.py"
+      - name: Fetch pinned upstream strategy source into isolated research workspace
+        run: |
+          curl --fail --location --retry 3             https://raw.githubusercontent.com/remiotore/ccxt-freqtrade/4586a4c30611106117494c6518bca1840047f818/strategies/NostalgiaForInfinityV5.py             --output user_data/strategies/NostalgiaForInfinityV5.py
+          test -s user_data/strategies/NostalgiaForInfinityV5.py
+      - name: Run Freqtrade backtest (original strategy settings, no live trading)
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable             backtesting --config user_data/config.json --strategy NostalgiaForInfinityV5             --datadir user_data/data/binance --timeframe 5m --timerange 20230101-20260101             --export trades --export-filename user_data/nfi-v5-backtest.json
+      - name: Upload reproduction data and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfi-v5-four-pair-reproduction
+          path: |
+            user_data/nfi-v5-backtest.json
+            user_data/config.json
+            user_data/strategies/NostalgiaForInfinityV5.py
+          if-no-files-found: warn
+          retention-days: 14
