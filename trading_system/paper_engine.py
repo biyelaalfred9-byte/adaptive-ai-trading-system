@@ -314,7 +314,7 @@ class PaperTradingEngine:
             item["symbol"],
         ))
         # Do not spend slots freed by a later exit on an impossible earlier entry.
-        exit_times = [event.timestamp for report in reports for event in report.exits]
+        exit_times = [event.closed_at for report in reports for event in report.exits]
         allocation_floor = max(exit_times) if exit_times else None
         candidates_by_report: dict[int, list[CandidateResult]] = {}
         entries_by_report: dict[int, int] = {}
