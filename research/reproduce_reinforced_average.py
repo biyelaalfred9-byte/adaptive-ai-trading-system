@@ -151,7 +151,7 @@ def run():
     equity_peak = INITIAL
     max_dd = 0.0
     equity_curve = []
-    last_signal = {}
+    latest_close = {}
 
     for ts, symbol, i in events:
         data, (fast, slow, trend) = markets[symbol]
@@ -160,16 +160,23 @@ def run():
         row = data[i]
         next_open = data[i + 1][1]
         close = row[4]
+        latest_close[symbol] = close
         pos = positions.get(symbol)
 
         # Stop loss and ROI are checked against candle extremes; stop takes priority.
         if pos:
             exit_price = None
             reason = None
-            if row[3] <= pos["entry"] * 0.80:
-                exit_price, reason = pos["entry"] * 0.80, "stop_loss"
-            elif row[2] >= pos["entry"] * 1.50:
-                exit_price, reason = pos["entry"] * 1.50, "roi_50"
+            stop_price = pos["entry"] * 0.80
+            roi_price = pos["entry"] * 1.50
+            if row[1] <= stop_price:
+                exit_price, reason = row[1], "stop_loss_gap"
+            elif row[3] <= stop_price:
+                exit_price, reason = stop_price, "stop_loss"
+            elif row[1] >= roi_price:
+                exit_price, reason = row[1], "roi_50_gap"
+            elif row[2] >= roi_price:
+                exit_price, reason = roi_price, "roi_50"
             elif fast[i] is not None and slow[i] is not None and fast[i-1] is not None and slow[i-1] is not None and slow[i] > fast[i] and slow[i-1] <= fast[i-1]:
                 exit_price, reason = next_open, "ema_exit_next_open"
             if exit_price is not None:
@@ -190,7 +197,7 @@ def run():
                 cash -= STAKE
         marked = cash
         for sym, p in positions.items():
-            current_close = markets[sym][0][i if sym == symbol else min(i, len(markets[sym][0])-1)][4] if sym == symbol else p["entry"]
+            current_close = latest_close.get(sym, p["entry"])
             marked += STAKE * current_close / p["entry"]
         equity_peak = max(equity_peak, marked)
         if equity_peak:
@@ -222,7 +229,7 @@ def run():
         "win_rate_pct": round(100*wins/len(trades), 2) if trades else 0,
         "net_pnl_usdt": round(net, 4), "return_pct": round(100*net/INITIAL, 2),
         "profit_factor": round(pf, 4) if math.isfinite(pf) else "infinite",
-        "max_drawdown_pct_approx": round(100*max_dd, 2),
+        "max_drawdown_pct": round(100*max_dd, 2),
         "trade_reasons": dict((r, sum(t["reason"] == r for t in trades)) for r in sorted({t["reason"] for t in trades})),
         "warning": "Independent reproduction; conservative next-open signals, simplified portfolio mark-to-market. Not a live result."
     }
