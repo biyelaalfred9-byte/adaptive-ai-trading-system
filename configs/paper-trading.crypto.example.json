@@ -3,13 +3,13 @@
   "portfolio_database": "paper_portfolio.sqlite3",
   "journal_database": "trading_journal.sqlite3",
   "engine_state_database": "paper_engine_state.sqlite3",
-  "starting_equity": 1000.0,
+  "starting_equity": 1000,
   "crypto_exchange": "binance",
   "interval_seconds": 60,
   "history_limit": 500,
-  "spread_bps": 2.0,
-  "slippage_bps": 1.0,
-  "fee_bps": 10.0,
+  "spread_bps": 2,
+  "slippage_bps": 1,
+  "fee_bps": 10,
   "subscriptions": [
     {
       "market": "crypto",
@@ -35,5 +35,6 @@
       "timeframe": "1h",
       "limit": 100
     }
-  ]
+  ],
+  "max_holding_period_hours": 12
 }
