@@ -82,9 +82,12 @@ class PaperTradingEngine:
         state_path: str = "paper_engine_state.sqlite3",
         history_limit: int = 500,
         process_existing_history: bool = False,
+        max_holding_period_hours: float = 12.0,
     ) -> None:
         if history_limit < 50:
             raise ValueError("history_limit must be at least 50 candles")
+        if max_holding_period_hours <= 0:
+            raise ValueError("max_holding_period_hours must be positive")
         if coordinator.portfolio is not portfolio:
             raise ValueError("coordinator must use the engine's PaperPortfolio")
         if not getattr(coordinator.executor, "costs", None):
@@ -96,6 +99,7 @@ class PaperTradingEngine:
         self.strategies = strategies or StrategyEngine()
         self.history_limit = history_limit
         self.process_existing_history = process_existing_history
+        self.max_holding_period = timedelta(hours=max_holding_period_hours)
         self.state_path = str(Path(state_path))
         with self._connect() as db:
             db.execute("""
@@ -243,6 +247,7 @@ class PaperTradingEngine:
                 symbol, candle.open, candle.high, candle.low, candle.close,
                 at=candle.timestamp, fee_bps=costs.fee_bps,
                 spread_bps=costs.spread_bps, slippage_bps=costs.slippage_bps,
+                max_holding_period=self.max_holding_period,
             ))
             marks = self._marks(market, symbol, timeframe, candle, at_open=False)
             self.portfolio.state(marks, at=candle.timestamp)
