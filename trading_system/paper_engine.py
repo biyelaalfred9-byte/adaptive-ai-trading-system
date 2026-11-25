@@ -316,6 +316,7 @@ class PaperTradingEngine:
         # Do not spend slots freed by a later exit on an impossible earlier entry.
         exit_times = [event.closed_at for report in reports for event in report.exits]
         allocation_floor = max(exit_times) if exit_times else None
+        exited_symbols = {event.symbol for report in reports for event in report.exits}
         candidates_by_report: dict[int, list[CandidateResult]] = {}
         entries_by_report: dict[int, int] = {}
         skipped_by_report: dict[int, bool] = {}
@@ -327,6 +328,16 @@ class PaperTradingEngine:
                 None,
             )
             if report_index is None:
+                continue
+            if symbol in exited_symbols:
+                candidates_by_report.setdefault(report_index, []).extend(
+                    CandidateResult(
+                        replace(signal, created_at=item["candle"].timestamp),
+                        False,
+                        "symbol exited this cycle; one-cycle re-entry cooldown",
+                    )
+                    for signal in item["signals"]
+                )
                 continue
             if any(position.symbol == symbol for position in self.portfolio.open_positions()):
                 skipped_by_report[report_index] = True
