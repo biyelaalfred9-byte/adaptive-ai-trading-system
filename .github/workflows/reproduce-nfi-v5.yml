@@ -47,14 +47,14 @@ jobs:
           JSON
       - name: Download public 5m and 1h candles (Binance Vision only)
         run: |
-          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable             sh -lc "pip install --quiet pandas pyarrow && python research/download_nfi_data.py"
+          docker run --rm --user "$(id -u):$(id -g)" --entrypoint sh -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable -lc "python -m pip install --quiet --target /tmp/nfi-deps pyarrow && PYTHONPATH=/tmp/nfi-deps python research/download_nfi_data.py"
       - name: Fetch pinned upstream strategy source into isolated research workspace
         run: |
-          curl --fail --location --retry 3             https://raw.githubusercontent.com/remiotore/ccxt-freqtrade/4586a4c30611106117494c6518bca1840047f818/strategies/NostalgiaForInfinityV5.py             --output user_data/strategies/NostalgiaForInfinityV5.py
+          curl --fail --location --retry 3 https://raw.githubusercontent.com/remiotore/ccxt-freqtrade/4586a4c30611106117494c6518bca1840047f818/strategies/NostalgiaForInfinityV5.py --output user_data/strategies/NostalgiaForInfinityV5.py
           test -s user_data/strategies/NostalgiaForInfinityV5.py
       - name: Run Freqtrade backtest (original strategy settings, no live trading)
         run: |
-          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable             backtesting --config user_data/config.json --strategy NostalgiaForInfinityV5             --datadir user_data/data/binance --timeframe 5m --timerange 20230101-20260101             --export trades --export-filename user_data/nfi-v5-backtest.json
+          docker run --rm --user "$(id -u):$(id -g)" --entrypoint sh -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable -lc "python -m pip install --quiet --target /tmp/nfi-deps pyarrow && PYTHONPATH=/tmp/nfi-deps freqtrade backtesting --config user_data/config.json --strategy NostalgiaForInfinityV5 --datadir user_data/data/binance --timeframe 5m --timerange 20230101-20260101 --export trades --export-filename user_data/nfi-v5-backtest.json"
       - name: Upload reproduction data and results
         if: always()
         uses: actions/upload-artifact@v4
