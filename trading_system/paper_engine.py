@@ -163,14 +163,18 @@ class PaperTradingEngine:
         self, *, market: str, symbol: str, timeframe: str = "1h",
         limit: int = 100, now: datetime | None = None,
         _deferred_entries: list | None = None,
+        _prefetched_count: int | None = None,
     ) -> PaperCycleReport:
         """Collect once and process every newly completed candle in order."""
         now = now or datetime.now(timezone.utc)
         if now.tzinfo is None:
             raise ValueError("now must be timezone-aware")
         now = now.astimezone(timezone.utc)
-        stored_count = self.collector.collect_once(
-            market=market, symbol=symbol, timeframe=timeframe, limit=limit
+        stored_count = (
+            _prefetched_count if _prefetched_count is not None
+            else self.collector.collect_once(
+                market=market, symbol=symbol, timeframe=timeframe, limit=limit
+            )
         )
         candles = self.candle_store.get(
             market, symbol, timeframe, limit=self.history_limit
@@ -287,11 +291,19 @@ class PaperTradingEngine:
         if not subscriptions:
             raise ValueError("at least one market subscription is required")
         deferred: list[dict] = []
+        # Collect every subscribed market before processing any one market.
+        # Portfolio-wide risk marks must be available even for positions whose
+        # symbols appear later in the subscription list.
+        prefetched_counts = [
+            self.collector.collect_once(**subscription)
+            for subscription in subscriptions
+        ]
         reports = [
             self.process_subscription(
-                **subscription, now=now, _deferred_entries=deferred
+                **subscription, now=now, _deferred_entries=deferred,
+                _prefetched_count=prefetched_counts[index],
             )
-            for subscription in subscriptions
+            for index, subscription in enumerate(subscriptions)
         ]
 
         # Replay the candidate queue in candle-time order; within the same
