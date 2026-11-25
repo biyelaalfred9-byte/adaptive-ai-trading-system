@@ -301,6 +301,9 @@ class PaperTradingEngine:
             -max(signal.confidence for signal in item["signals"]),
             item["symbol"],
         ))
+        # Do not spend slots freed by a later exit on an impossible earlier entry.
+        exit_times = [event.timestamp for report in reports for event in report.exits]
+        allocation_floor = max(exit_times) if exit_times else None
         candidates_by_report: dict[int, list[CandidateResult]] = {}
         entries_by_report: dict[int, int] = {}
         skipped_by_report: dict[int, bool] = {}
@@ -318,9 +321,23 @@ class PaperTradingEngine:
                 continue
 
             candle = item["candle"]
-            snapshot = self.portfolio.risk_snapshot(
-                item["marks"], at=candle.timestamp
-            )
+            if allocation_floor is not None and candle.timestamp < allocation_floor:
+                continue
+            # Refresh marks for positions opened earlier in this allocation pass.
+            marks = dict(item["marks"])
+            for position in self.portfolio.open_positions():
+                if position.symbol in marks:
+                    continue
+                latest = []
+                for candidate_market in dict.fromkeys((item["market"], "crypto", "forex")):
+                    latest = self.candle_store.get(
+                        candidate_market, position.symbol, candle.timeframe, limit=1
+                    )
+                    if latest:
+                        break
+                if latest:
+                    marks[position.symbol] = latest[-1].close
+            snapshot = self.portfolio.risk_snapshot(marks, at=candle.timestamp)
             for candidate in sorted(
                 item["signals"], key=lambda signal: signal.confidence, reverse=True
             ):
