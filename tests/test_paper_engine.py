@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from trading_system.domain import Market, Side, Signal
+from trading_system.domain import ExecutionResult, Market, OrderRequest, Side, Signal
 from trading_system.execution.coordinator import PaperTradingCoordinator
 from trading_system.execution.paper import PaperExecutor
 from trading_system.market_data.collector import MarketDataCollector
@@ -186,3 +186,31 @@ def test_engine_tries_next_candidate_if_best_signal_is_invalid_at_next_open(tmp_
     assert "bracket price" in report.candidates[0].reason
     assert report.candidates[1].approved is True
     assert len(portfolio.open_positions()) == 1
+
+
+
+def test_engine_closes_open_position_after_configured_12_hours(tmp_path):
+    candles = [
+        candle(T0 + timedelta(hours=hour))
+        for hour in range(13)
+    ]
+    engine, portfolio = make_engine(tmp_path, candles)
+    order = OrderRequest("BTC/USDT", Side.BUY, 1, 100)
+    fill = ExecutionResult(
+        "existing-paper-position", "filled", 1, 100,
+        simulated=True, fee_paid=0,
+    )
+    position = portfolio.open_position(order, fill, opened_at=T0)
+
+    report = engine.process_subscription(
+        market="crypto", symbol="BTC/USDT", timeframe="1h",
+        now=T0 + timedelta(hours=14),
+    )
+
+    assert any(
+        event.position_id == position.position_id
+        and event.reason == "max_holding_period"
+        for event in report.exits
+    )
+    assert all(item.position_id != position.position_id
+               for item in portfolio.open_positions())
