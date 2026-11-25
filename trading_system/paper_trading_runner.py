@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 import logging
 import os
 from pathlib import Path
@@ -114,6 +115,55 @@ def main() -> None:
                     "PAPER EXIT %s reason=%s price=%.8f realized_pnl=%.4f",
                     event.symbol, event.reason, event.exit_price, event.realized_pnl,
                 )
+
+        # Report the portfolio after every scheduled cycle. This makes a
+        # successful workflow distinguishable from actual trading progress.
+        now = datetime.now(timezone.utc)
+        marks: dict[str, float] = {}
+        mark_times: dict[str, datetime] = {}
+        for position in engine.portfolio.open_positions():
+            for market in ("crypto", "forex"):
+                latest = engine.candle_store.get(
+                    market, position.symbol, "1h", limit=1
+                )
+                if latest:
+                    marks[position.symbol] = latest[-1].close
+                    mark_times[position.symbol] = latest[-1].timestamp
+                    break
+
+        portfolio_state = engine.portfolio.state(marks, at=now)
+        logging.info(
+            "PAPER PORTFOLIO equity=%.4f realized_pnl=%.4f unrealized_pnl=%.4f "
+            "daily_pnl=%.4f drawdown_pct=%.3f open_positions=%d",
+            portfolio_state.equity, portfolio_state.realized_pnl,
+            portfolio_state.unrealized_pnl, portfolio_state.daily_pnl,
+            portfolio_state.current_drawdown * 100,
+            portfolio_state.open_positions,
+        )
+        for position in engine.portfolio.open_positions():
+            opened_at = position.opened_at
+            if opened_at.tzinfo is None:
+                opened_at = opened_at.replace(tzinfo=timezone.utc)
+            held_hours = (now - opened_at.astimezone(timezone.utc)).total_seconds() / 3600
+            mark = marks.get(position.symbol)
+            if mark is None:
+                logging.warning(
+                    "PAPER OPEN POSITION %s side=%s opened_at=%s held_hours=%.2f "
+                    "mark=unavailable; unrealized_pnl=unavailable",
+                    position.symbol, position.side.value, position.opened_at, held_hours,
+                )
+                continue
+            direction = 1.0 if position.side.value == "buy" else -1.0
+            unrealized = (
+                (mark - position.entry_price) * position.quantity * direction
+                - position.entry_fee
+            )
+            logging.info(
+                "PAPER OPEN POSITION %s side=%s entry=%.8f mark=%.8f "
+                "mark_at=%s opened_at=%s held_hours=%.2f unrealized_pnl=%.4f",
+                position.symbol, position.side.value, position.entry_price, mark,
+                mark_times[position.symbol], position.opened_at, held_hours, unrealized,
+            )
         return
     logging.info("Starting paper-only engine. Press Ctrl+C to stop.")
     try:
