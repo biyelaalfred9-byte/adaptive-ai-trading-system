@@ -54,7 +54,10 @@ jobs:
           test -s user_data/strategies/NostalgiaForInfinityV5.py
       - name: Run Freqtrade backtest (original strategy settings, no live trading)
         run: |
-          docker run --rm --user root -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable backtesting --config user_data/config.json --strategy NostalgiaForInfinityV5 --datadir user_data/data/binance --timeframe 5m --timerange 20230101-20260101 --export trades --export-filename user_data/nfi-v5-backtest.json
+          # Do not mount over /freqtrade: that is where the official image installs
+          # the Freqtrade Python package. Mount the research workspace elsewhere.
+          chmod -R a+rwX user_data
+          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable backtesting --config user_data/config.json --strategy NostalgiaForInfinityV5 --datadir user_data/data/binance --timeframe 5m --timerange 20230101-20260101 --export trades --export-filename user_data/nfi-v5-backtest.json
       - name: Upload reproduction data and results
         if: always()
         uses: actions/upload-artifact@v4
