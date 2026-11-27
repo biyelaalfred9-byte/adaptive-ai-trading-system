@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Prepare isolated Freqtrade research environment
         run: |
-          mkdir -p user_data/strategies user_data/data/binance
+          mkdir -p user_data/strategies user_data/data/binance user_data/backtest_results
           cat > user_data/config.json <<'JSON'
           {
             "max_open_trades": 5,
@@ -63,27 +63,47 @@ jobs:
           JSON
       - name: Preflight official Binance market-data-only endpoint through CCXT
         run: |
-          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable python research/preflight_nfi_marketdata.py
+          docker run --rm --entrypoint python -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable research/preflight_nfi_marketdata.py
       - name: Download public 5m and 1h candles (Binance Vision only)
         run: |
           docker run --rm --user "$(id -u):$(id -g)" --entrypoint sh -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable -lc "python -m pip install --quiet --target /tmp/nfi-deps pandas pyarrow && PYTHONPATH=/tmp/nfi-deps python research/download_nfi_data.py"
+      - name: Verify candle coverage reaches the full requested period
+        run: |
+          docker run --rm --entrypoint python -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable -c "import pandas as pd; from pathlib import Path; p=Path('/workspace/user_data/data/binance'); files=sorted(p.glob('*-5m.feather')); assert len(files)==4, f'Expected 4 5m files, got {len(files)}'; [(lambda d,f: (print(f'{f.name}: {len(d)} candles, {d.date.min()} -> {d.date.max()}'), (_ for _ in ()).throw(AssertionError(f'{f.name} ends before 2025-12-31')) if d.date.max() < pd.Timestamp('2025-12-30', tz='UTC') else None))(pd.read_feather(f),f) for f in files]"
       - name: Fetch pinned upstream strategy source into isolated research workspace
         run: |
           curl --fail --location --retry 3 https://raw.githubusercontent.com/remiotore/ccxt-freqtrade/4586a4c30611106117494c6518bca1840047f818/strategies/NostalgiaForInfinityV5.py --output user_data/strategies/NostalgiaForInfinityV5.py
           test -s user_data/strategies/NostalgiaForInfinityV5.py
-      - name: Run Freqtrade backtest (original strategy settings, no live trading)
+      - name: Run full-history backtest and export machine-readable trades
         run: |
-          # Do not mount over /freqtrade: that is where the official image installs
-          # the Freqtrade Python package. Mount the research workspace elsewhere.
           chmod -R a+rwX user_data
-          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable backtesting --config user_data/config.json --strategy NostalgiaForInfinityV5 --datadir user_data/data/binance --timeframe 5m --timerange 20230101-20260101 --export trades --export-filename user_data/nfi-v5-backtest.json
+          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable backtesting --user-data-dir /workspace/user_data --config /workspace/user_data/config.json --strategy-path /workspace/user_data/strategies --strategy NostalgiaForInfinityV5 --datadir /workspace/user_data/data/binance --timeframe 5m --timerange 20230101-20260101 --export trades --export-filename /workspace/user_data/nfi-v5-backtest-full.json
+          test -s user_data/nfi-v5-backtest-full.json
+      - name: Run untouched 2025 out-of-sample period
+        run: |
+          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable backtesting --user-data-dir /workspace/user_data --config /workspace/user_data/config.json --strategy-path /workspace/user_data/strategies --strategy NostalgiaForInfinityV5 --datadir /workspace/user_data/data/binance --timeframe 5m --timerange 20250101-20260101 --export trades --export-filename /workspace/user_data/nfi-v5-backtest-oos-2025.json
+          test -s user_data/nfi-v5-backtest-oos-2025.json
+      - name: Validate exported JSON and upload reproducible results
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in [Path("user_data/nfi-v5-backtest-full.json"), Path("user_data/nfi-v5-backtest-oos-2025.json")]:
+              if path.exists() and path.stat().st_size:
+                  data = json.loads(path.read_text())
+                  print(f"VALID JSON: {path} ({path.stat().st_size} bytes); top-level keys={list(data)[:8]}")
+              else:
+                  print(f"MISSING EXPORT: {path}")
+          PY
       - name: Upload reproduction data and results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: nfi-v5-four-pair-reproduction
           path: |
-            user_data/nfi-v5-backtest.json
+            user_data/nfi-v5-backtest-full.json
+            user_data/nfi-v5-backtest-oos-2025.json
             user_data/config.json
             user_data/strategies/NostalgiaForInfinityV5.py
           if-no-files-found: warn
