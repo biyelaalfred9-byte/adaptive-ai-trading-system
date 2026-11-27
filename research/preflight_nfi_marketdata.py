@@ -14,7 +14,7 @@ async def main() -> None:
         {
             "enableRateLimit": True,
             "urls": {"api": {"public": PUBLIC_API}},
-            "options": {"fetchCurrencies": False},
+            "options": {"fetchCurrencies": False, "fetchMarkets": {"types": ["spot"]}},
         }
     )
     try:
