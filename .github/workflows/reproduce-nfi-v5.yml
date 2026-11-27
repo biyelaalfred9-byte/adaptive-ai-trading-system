@@ -72,7 +72,7 @@ jobs:
                       market = markets[pair]
                       if not market.get("spot") or market.get("quote") != "USDT":
                           raise SystemExit(f"Unexpected market metadata for {pair}: {market}")
-                      print(f"{pair}: active={market.get(chr(97)+chr(99)+chr(116)+chr(105)+chr(118)+chr(101))}, precision={market.get(chr(112)+chr(114)+chr(101)+chr(99)+chr(105)+chr(115)+chr(105)+chr(111)+chr(110))}, limits={market.get(chr(108)+chr(105)+chr(109)+chr(105)+chr(116)+chr(115))}")
+                      print(f"{pair}: active={market.get("active")}, precision={market.get("precision")}, limits={market.get("limits")}")
                   print(f"PASS: loaded {len(markets)} markets from official Binance market-data-only endpoint")
               finally:
                   await exchange.close()
