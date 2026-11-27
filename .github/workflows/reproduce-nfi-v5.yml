@@ -37,7 +37,7 @@ jobs:
               "secret": "",
               "ccxt_config": {
                 "urls": {"api": {"public": "https://data-api.binance.vision/api/v3"}},
-                "options": {"fetchCurrencies": false}
+                "options": {"fetchCurrencies": false, "fetchMarkets": {"types": ["spot"]}}
               },
               "ccxt_async_config": {
                 "urls": {"api": {"public": "https://data-api.binance.vision/api/v3"}},
