@@ -31,6 +31,16 @@ jobs:
             "cancel_open_orders_on_exit": false,
             "trading_mode": "spot",
             "margin_mode": "",
+            "entry_pricing": {
+              "price_side": "same",
+              "use_order_book": false,
+              "price_last_balance": 0.0
+            },
+            "exit_pricing": {
+              "price_side": "same",
+              "use_order_book": false,
+              "price_last_balance": 0.0
+            },
             "exchange": {
               "name": "binance",
               "key": "",
@@ -41,7 +51,7 @@ jobs:
               },
               "ccxt_async_config": {
                 "urls": {"api": {"public": "https://data-api.binance.vision/api/v3"}},
-                "options": {"fetchCurrencies": false}
+                "options": {"fetchCurrencies": false, "fetchMarkets": {"types": ["spot"]}}
               },
               "pair_whitelist": ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT"],
               "pair_blacklist": []
