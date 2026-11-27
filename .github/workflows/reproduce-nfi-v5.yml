@@ -35,8 +35,14 @@ jobs:
               "name": "binance",
               "key": "",
               "secret": "",
-              "ccxt_config": {},
-              "ccxt_async_config": {},
+              "ccxt_config": {
+                "urls": {"api": {"public": "https://data-api.binance.vision/api/v3"}},
+                "options": {"fetchCurrencies": false}
+              },
+              "ccxt_async_config": {
+                "urls": {"api": {"public": "https://data-api.binance.vision/api/v3"}},
+                "options": {"fetchCurrencies": false}
+              },
               "pair_whitelist": ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT"],
               "pair_blacklist": []
             },
@@ -45,6 +51,32 @@ jobs:
             "fee": 0.001
           }
           JSON
+      - name: Preflight official Binance market-data-only endpoint through CCXT
+        run: |
+          docker run --rm freqtradeorg/freqtrade:stable python -c '
+          import asyncio
+          import ccxt.pro as ccxt
+          async def main():
+              exchange = ccxt.binance({
+                  "enableRateLimit": True,
+                  "urls": {"api": {"public": "https://data-api.binance.vision/api/v3"}},
+                  "options": {"fetchCurrencies": False},
+              })
+              try:
+                  markets = await exchange.load_markets()
+                  required = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT"]
+                  missing = [pair for pair in required if pair not in markets]
+                  if missing:
+                      raise SystemExit(f"Missing required Binance spot markets: {missing}")
+                  for pair in required:
+                      market = markets[pair]
+                      if not market.get("spot") or market.get("quote") != "USDT":
+                          raise SystemExit(f"Unexpected market metadata for {pair}: {market}")
+                      print(f"{pair}: active={market.get(chr(97)+chr(99)+chr(116)+chr(105)+chr(118)+chr(101))}, precision={market.get(chr(112)+chr(114)+chr(101)+chr(99)+chr(105)+chr(115)+chr(105)+chr(111)+chr(110))}, limits={market.get(chr(108)+chr(105)+chr(109)+chr(105)+chr(116)+chr(115))}")
+                  print(f"PASS: loaded {len(markets)} markets from official Binance market-data-only endpoint")
+              finally:
+                  await exchange.close()
+          asyncio.run(main())
       - name: Download public 5m and 1h candles (Binance Vision only)
         run: |
           docker run --rm --user "$(id -u):$(id -g)" --entrypoint sh -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable -lc "python -m pip install --quiet --target /tmp/nfi-deps pandas pyarrow && PYTHONPATH=/tmp/nfi-deps python research/download_nfi_data.py"
