@@ -14,6 +14,20 @@
 - **Approach:** independent depth-weighted VWAP estimator with insufficient-depth and maximum-adverse-slippage rejection.
 - **Integration status:** standalone module only; current paper feed is candle-based and does not provide synchronized order-book snapshots.
 
+## Risk-budgeted position sizing — implemented locally
+
+- **Reference:** [Jesse position-risk guidance](https://github.com/jesse-ai/jesse/blob/570e983de5fb303b88793f1d1ad25e218ed19dea/jesse/mcp/resources/position_risk.md), MIT project.
+- **Approach:** independent risk-budget sizing; quantity accounts for stop distance, estimated entry/exit fees, and an available-capital cap. No Jesse source code copied.
+- **Safety:** spot/1x notional cap only; leverage is not modeled. This module does not override the existing risk gate.
+- **Integration status:** standalone with unit tests; not connected to order sizing.
+
+## Stop-loss cooldown and drawdown protection — implemented locally
+
+- **Reference:** [Freqtrade StoplossGuard](https://github.com/freqtrade/freqtrade/blob/e7408a6d17cd8ef4d96165540d14f7fe90d07bca/freqtrade/plugins/protections/stoploss_guard.py) and [MaxDrawdown](https://github.com/freqtrade/freqtrade/blob/e7408a6d17cd8ef4d96165540d14f7fe90d07bca/freqtrade/plugins/protections/max_drawdown_protection.py), GPL-3.0 project.
+- **Approach:** independently implemented pure protection functions over supplied trade outcomes/equity points; no Freqtrade source code copied.
+- **Behavior:** rolling stop-loss count triggers a configurable entry lockout; peak-to-trough drawdown calculation can block new entries at a threshold.
+- **Integration status:** standalone with unit tests; not connected to the paper engine.
+
 ## Research / architecture references
 
 | Project | License checked | Treatment |
