@@ -7,6 +7,7 @@ on:
       - ".github/workflows/reproduce-nfi-v5.yml"
       - "research/download_nfi_data.py"
       - "research/verify_nfi_data.py"
+      - "research/analyze_nfi_backtest.py"
 
 permissions:
   contents: read
@@ -88,6 +89,7 @@ jobs:
           result="$(find user_data/backtest_results/full -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
           test -n "$result" && cp "$result" user_data/nfi-v5-backtest-full.json
           test -s user_data/nfi-v5-backtest-full.json
+          python research/analyze_nfi_backtest.py --directory user_data/backtest_results/full --output user_data/reports/nfi-v5-full-trades.json --label full_2023_2025
       - name: Run 2025 holdout period and export machine-readable trades
         run: |
           rm -f user_data/backtest_results/oos/*.json
@@ -95,28 +97,62 @@ jobs:
           result="$(find user_data/backtest_results/oos -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
           test -n "$result" && cp "$result" user_data/nfi-v5-backtest-oos-2025.json
           test -s user_data/nfi-v5-backtest-oos-2025.json
-      - name: Validate exported JSON and upload reproducible results
+          python research/analyze_nfi_backtest.py --directory user_data/backtest_results/oos --output user_data/reports/nfi-v5-2025-trades.json --label baseline_2025
+      - name: Build conservative exposure config (2 positions, $100 each, spot only)
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          config = json.loads(Path("user_data/config.json").read_text())
+          config["max_open_trades"] = 2
+          config["stake_amount"] = 100
+          config["dry_run"] = True
+          config["dry_run_wallet"] = 1000
+          config["trading_mode"] = "spot"
+          Path("user_data/config-strict.json").write_text(json.dumps(config, indent=2))
+          PY
+      - name: Run conservative full-history backtest and audit individual trades
+        run: |
+          mkdir -p user_data/backtest_results/strict-full
+          rm -f user_data/backtest_results/strict-full/*
+          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable backtesting --user-data-dir /workspace/user_data --config /workspace/user_data/config-strict.json --strategy-path /workspace/user_data/strategies --strategy NostalgiaForInfinityV5 --datadir /workspace/user_data/data/binance --timeframe 5m --timerange 20230101-20260101 --cache none --export trades --backtest-directory /workspace/user_data/backtest_results/strict-full
+          python research/analyze_nfi_backtest.py --directory user_data/backtest_results/strict-full --output user_data/reports/nfi-v5-strict-full-trades.json --label strict_full_2023_2025
+      - name: Run conservative 2025 holdout and audit individual trades
+        run: |
+          mkdir -p user_data/backtest_results/strict-2025
+          rm -f user_data/backtest_results/strict-2025/*
+          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable backtesting --user-data-dir /workspace/user_data --config /workspace/user_data/config-strict.json --strategy-path /workspace/user_data/strategies --strategy NostalgiaForInfinityV5 --datadir /workspace/user_data/data/binance --timeframe 5m --timerange 20250101-20260101 --cache none --export trades --backtest-directory /workspace/user_data/backtest_results/strict-2025
+          python research/analyze_nfi_backtest.py --directory user_data/backtest_results/strict-2025 --output user_data/reports/nfi-v5-strict-2025-trades.json --label strict_2025
+      - name: Validate real trade exports and upload reproducible results
         if: always()
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          for path in [Path("user_data/nfi-v5-backtest-full.json"), Path("user_data/nfi-v5-backtest-oos-2025.json")]:
-              if path.exists() and path.stat().st_size:
-                  data = json.loads(path.read_text())
-                  print(f"VALID JSON: {path} ({path.stat().st_size} bytes); top-level keys={list(data)[:8]}")
-              else:
-                  print(f"MISSING EXPORT: {path}")
+          reports = [
+              Path("user_data/reports/nfi-v5-full-trades.json"),
+              Path("user_data/reports/nfi-v5-2025-trades.json"),
+              Path("user_data/reports/nfi-v5-strict-full-trades.json"),
+              Path("user_data/reports/nfi-v5-strict-2025-trades.json"),
+          ]
+          for path in reports:
+              if not path.exists():
+                  raise SystemExit(f"MISSING TRADE AUDIT: {path}")
+              data = json.loads(path.read_text())
+              if data.get("trade_count", 0) < 1:
+                  raise SystemExit(f"NO TRADES EXTRACTED: {path}")
+              print(f"VALID TRADE EXPORT: {path}; trades={data['trade_count']}; win_rate={data['win_rate_pct']}%; PF={data['trade_profit_factor']}; net={data['net_profit_abs']}")
           PY
       - name: Upload reproduction data and results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nfi-v5-twelve-pair-reproduction
+          name: nfi-v5-twelve-pair-reproduction-v2
           path: |
-            user_data/nfi-v5-backtest-full.json
-            user_data/nfi-v5-backtest-oos-2025.json
+            user_data/reports/*.json
+            user_data/backtest_results/**/*.zip
             user_data/config.json
+            user_data/config-strict.json
             user_data/strategies/NostalgiaForInfinityV5.py
           if-no-files-found: warn
           retention-days: 14
