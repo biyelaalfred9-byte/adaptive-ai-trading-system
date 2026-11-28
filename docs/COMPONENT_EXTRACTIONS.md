@@ -1,56 +1,34 @@
 # Reusable component extraction register
 
-This register separates source-code reuse from independently implemented
-design adaptations. No third-party strategy is enabled for paper or live
-execution merely because its source has been reviewed.
+## Trailing-stop and break-even state machine — implemented locally
 
-## 1. Execution slippage guard — implemented locally
+- **Reference:** [Jesse](https://github.com/jesse-ai/jesse), upstream MIT license.
+- **Approach:** independently implemented deterministic long/short stop transitions; no Jesse source code copied.
+- **Behavior:** break-even activation, trailing activation, favorable-extreme tracking, and monotonic stop tightening. The stop never moves away from price.
+- **Timing safety:** update only after a completed candle; the new stop applies to the next candle. This avoids look-ahead bias from using a candle's high/low to claim a stop was already active within that candle.
+- **Integration status:** standalone module with unit tests. Not wired into the live paper portfolio yet. Existing fixed stop-loss, take-profit, and 12-hour maximum holding period remain unchanged.
 
-- **Reference project:** [Hummingbot](https://github.com/hummingbot/hummingbot)
-- **Upstream license checked:** Apache-2.0 ([LICENSE](https://github.com/hummingbot/hummingbot/blob/master/LICENSE)).
-- **What we adopted:** the execution-system principle that an order must be
-  evaluated against available order-book depth, not only the best quote.
-- **What we wrote:** `trading_system/execution/slippage.py` is an independent
-  implementation. No Hummingbot source file or code block was copied.
-- **Behavior:** depth-weighted VWAP for buy/sell orders, explicit insufficient
-  depth rejection, and a configurable maximum adverse slippage in basis points.
-- **Integration status:** unit-tested standalone component. It is not yet wired
-  into the paper coordinator because the current market-data contract supplies
-  candles, not synchronized order-book snapshots. Do not treat its guard as
-  active protection until an order-book feed is connected and tested.
+## Execution slippage guard — implemented locally
 
-## 2. Risk and position-management review — next extraction
+- **Reference:** [Hummingbot](https://github.com/hummingbot/hummingbot), Apache-2.0.
+- **Approach:** independent depth-weighted VWAP estimator with insufficient-depth and maximum-adverse-slippage rejection.
+- **Integration status:** standalone module only; current paper feed is candle-based and does not provide synchronized order-book snapshots.
 
-- **Reference project:** [Jesse](https://github.com/jesse-ai/jesse)
-- **Upstream license checked:** MIT ([LICENSE](https://github.com/jesse-ai/jesse/blob/master/LICENSE)).
-- **Current local coverage:** deterministic risk gate, risk-based sizing,
-  stop-loss/take-profit exits, and a 12-hour maximum paper holding period
-  already exist in this repository.
-- **Next review:** compare trailing-stop and break-even transition semantics
-  against Jesse, then add only missing behavior with tests. Preserve MIT
-  notices if any Jesse source is copied; no Jesse code has been copied in this
-  change.
+## Research / architecture references
 
-## 3. Research and event-driven architecture references
-
-| Project | License checked | Planned treatment |
+| Project | License checked | Treatment |
 |---|---|---|
-| [QuantConnect Lean](https://github.com/QuantConnect/Lean) | Apache-2.0 | Study portfolio construction and risk-model boundaries; no code copied yet |
-| [TradingAgents](https://github.com/TauricResearch/TradingAgents) | Apache-2.0 | Study multi-agent research workflow; keep AI advisory, never able to bypass deterministic risk |
-| [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) | LGPL-3.0 | Architecture reference only until linking/copying implications are reviewed |
+| [QuantConnect Lean](https://github.com/QuantConnect/Lean) | Apache-2.0 | Study portfolio construction and risk-model boundaries; no code copied |
+| [TradingAgents](https://github.com/TauricResearch/TradingAgents) | Apache-2.0 | Study multi-agent research workflow; deterministic risk gate remains authoritative |
+| [NautilusTrader](https://github.com/nautechsystems/nautilus_trader) | LGPL-3.0 | Architecture reference only pending linking/copying review |
+| [Jesse](https://github.com/jesse-ai/jesse) | MIT | Risk-management reference; preserve notices if source is ever copied |
+| [Hummingbot](https://github.com/hummingbot/hummingbot) | Apache-2.0 | Execution/slippage design reference |
 
-## 4. Excluded from direct integration for now
+## Isolated strategy research
 
-- **Freqtrade / NostalgiaForInfinity V5:** GPL-3.0 strategy lineage. Keep the
-  strategy in an isolated research workspace; do not merge its source into the
-  core system without an explicit licensing decision and a reproducible
-  independent validation.
-- A reported backtest metric is not a verified edge. Any candidate still needs
-  individual-trade export, realistic costs, conservative exposure, and a
-  separate-period test.
+Freqtrade / NostalgiaForInfinity V5 remains isolated due to GPL-3.0 lineage.
+Do not merge its strategy source into the core without an explicit licensing
+decision and independently reproduced results.
 
-## Safety boundary
-
-All changes in this extraction workstream are research/paper-only. No live
-broker adapter, exchange credentials, or live-order path is enabled by this
-work.
+All extraction work is paper/research-only. No live broker adapter, exchange
+credentials, or live-order path is enabled by these components.
