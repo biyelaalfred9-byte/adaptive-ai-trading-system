@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Download public Binance Vision spot klines concurrently and write Freqtrade Feather files.
+"""Download public Binance Vision spot klines and write Freqtrade Feather files.
 
-No API keys, exchange endpoints, or order endpoints are used.
+Normalizes Binance timestamps: older archives use milliseconds while newer
+archives may use microseconds. No API keys or order endpoints are used.
 """
 from __future__ import annotations
 
@@ -15,7 +16,8 @@ from pathlib import Path
 
 import pandas as pd
 
-PAIRS = os.getenv("PAIRS", "BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT").split(",")
+DEFAULT_PAIRS = "BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT,XRP/USDT,ADA/USDT,DOGE/USDT,LINK/USDT,LTC/USDT,AVAX/USDT,DOT/USDT,TRX/USDT"
+PAIRS = os.getenv("PAIRS", DEFAULT_PAIRS).split(",")
 TIMEFRAMES = ("5m", "1h")
 START_YEAR, START_MONTH = 2023, 1
 END_YEAR, END_MONTH = 2026, 1  # exclusive
@@ -31,6 +33,16 @@ def months():
         m += 1
         if m == 13:
             y, m = y + 1, 1
+
+
+def normalize_timestamp(value: str) -> int:
+    """Return epoch milliseconds for either ms- or us-based Binance CSVs."""
+    timestamp = int(value)
+    if timestamp >= 100_000_000_000_000:  # microseconds
+        timestamp //= 1_000
+    if timestamp < 1_000_000_000_000:  # reject seconds / malformed values
+        raise ValueError(f"Unexpected Binance kline timestamp: {value}")
+    return timestamp
 
 
 def download(args):
@@ -55,7 +67,7 @@ def download(args):
         with zf.open(zf.namelist()[0]) as raw:
             rows = csv.reader(io.TextIOWrapper(raw, encoding="utf-8"))
             return [
-                (int(row[0]), *map(float, row[1:6]))
+                (normalize_timestamp(row[0]), *map(float, row[1:6]))
                 for row in rows
                 if row and row[0].isdigit()
             ]
@@ -69,8 +81,7 @@ def main():
         for tf in TIMEFRAMES
         for year, month in months()
     ]
-    print(f"Fetching {len(jobs)} monthly archives with {WORKERS} workers (cache: {CACHE}).")
-    # Process one pair/timeframe at a time to bound memory, but download its months concurrently.
+    print(f"Fetching {len(jobs)} monthly archives for {len(PAIRS)} pairs with {WORKERS} workers (cache: {CACHE}).")
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         for pair in PAIRS:
             symbol = pair.replace("/", "")
@@ -91,7 +102,7 @@ def main():
                 frame = frame[["date", "open", "high", "low", "close", "volume"]]
                 target = OUT / f"{pair.replace('/', '_')}-{tf}.feather"
                 frame.to_feather(target)
-                print(f"{pair} {tf}: {len(frame)} candles -> {target}", flush=True)
+                print(f"{pair} {tf}: {len(frame):,} candles; {frame['date'].min()} -> {frame['date'].max()} -> {target}", flush=True)
 
 
 if __name__ == "__main__":
