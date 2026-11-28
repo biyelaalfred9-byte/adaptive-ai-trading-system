@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/reproduce-nfi-v5.yml"
       - "research/download_nfi_data.py"
+      - "research/verify_nfi_data.py"
 
 permissions:
   contents: read
@@ -18,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Prepare isolated Freqtrade research environment
         run: |
-          mkdir -p user_data/strategies user_data/data/binance user_data/backtest_results
+          mkdir -p user_data/strategies user_data/data/binance user_data/backtest_results/full user_data/backtest_results/oos
           cat > user_data/config.json <<'JSON'
           {
             "max_open_trades": 5,
@@ -53,7 +54,7 @@ jobs:
                 "urls": {"api": {"public": "https://data-api.binance.vision/api/v3"}},
                 "options": {"fetchCurrencies": false, "fetchMarkets": {"types": ["spot"]}}
               },
-              "pair_whitelist": ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT"],
+              "pair_whitelist": ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT", "LINK/USDT", "LTC/USDT", "AVAX/USDT", "DOT/USDT", "TRX/USDT"],
               "pair_blacklist": []
             },
             "pairlists": [{"method": "StaticPairList"}],
@@ -68,11 +69,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/binance-vision
-          key: nfi-binance-vision-2023-2025-v1
+          key: nfi-binance-vision-2023-2025-v2-12pairs
       - name: Download public 5m and 1h candles (Binance Vision only)
         run: |
           docker run --rm --user "$(id -u):$(id -g)" --entrypoint sh -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable -lc "python -m pip install --quiet --target /tmp/nfi-deps pandas pyarrow && PYTHONPATH=/tmp/nfi-deps python research/download_nfi_data.py"
-      - name: Verify candle coverage reaches the full requested period
+      - name: Verify normalized candle coverage
         run: |
           docker run --rm --entrypoint python -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable research/verify_nfi_data.py
       - name: Fetch pinned upstream strategy source into isolated research workspace
@@ -82,11 +83,17 @@ jobs:
       - name: Run full-history backtest and export machine-readable trades
         run: |
           chmod -R a+rwX user_data
-          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable backtesting --user-data-dir /workspace/user_data --config /workspace/user_data/config.json --strategy-path /workspace/user_data/strategies --strategy NostalgiaForInfinityV5 --datadir /workspace/user_data/data/binance --timeframe 5m --timerange 20230101-20260101 --export trades --export-filename /workspace/user_data/nfi-v5-backtest-full.json
+          rm -f user_data/backtest_results/full/*.json
+          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable backtesting --user-data-dir /workspace/user_data --config /workspace/user_data/config.json --strategy-path /workspace/user_data/strategies --strategy NostalgiaForInfinityV5 --datadir /workspace/user_data/data/binance --timeframe 5m --timerange 20230101-20260101 --cache none --export trades --backtest-directory /workspace/user_data/backtest_results/full
+          result="$(find user_data/backtest_results/full -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+          test -n "$result" && cp "$result" user_data/nfi-v5-backtest-full.json
           test -s user_data/nfi-v5-backtest-full.json
-      - name: Run untouched 2025 out-of-sample period
+      - name: Run 2025 holdout period and export machine-readable trades
         run: |
-          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable backtesting --user-data-dir /workspace/user_data --config /workspace/user_data/config.json --strategy-path /workspace/user_data/strategies --strategy NostalgiaForInfinityV5 --datadir /workspace/user_data/data/binance --timeframe 5m --timerange 20250101-20260101 --export trades --export-filename /workspace/user_data/nfi-v5-backtest-oos-2025.json
+          rm -f user_data/backtest_results/oos/*.json
+          docker run --rm -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable backtesting --user-data-dir /workspace/user_data --config /workspace/user_data/config.json --strategy-path /workspace/user_data/strategies --strategy NostalgiaForInfinityV5 --datadir /workspace/user_data/data/binance --timeframe 5m --timerange 20250101-20260101 --cache none --export trades --backtest-directory /workspace/user_data/backtest_results/oos
+          result="$(find user_data/backtest_results/oos -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+          test -n "$result" && cp "$result" user_data/nfi-v5-backtest-oos-2025.json
           test -s user_data/nfi-v5-backtest-oos-2025.json
       - name: Validate exported JSON and upload reproducible results
         if: always()
@@ -105,7 +112,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nfi-v5-four-pair-reproduction
+          name: nfi-v5-twelve-pair-reproduction
           path: |
             user_data/nfi-v5-backtest-full.json
             user_data/nfi-v5-backtest-oos-2025.json
