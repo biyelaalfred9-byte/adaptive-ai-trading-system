@@ -64,6 +64,11 @@ jobs:
       - name: Preflight official Binance market-data-only endpoint through CCXT
         run: |
           docker run --rm --entrypoint python -v "$PWD:/workspace" -w /workspace freqtradeorg/freqtrade:stable research/preflight_nfi_marketdata.py
+      - name: Restore Binance Vision archive cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/binance-vision
+          key: nfi-binance-vision-2023-2025-v1
       - name: Download public 5m and 1h candles (Binance Vision only)
         run: |
           docker run --rm --user "$(id -u):$(id -g)" --entrypoint sh -v "$PWD:/freqtrade" -w /freqtrade freqtradeorg/freqtrade:stable -lc "python -m pip install --quiet --target /tmp/nfi-deps pandas pyarrow && PYTHONPATH=/tmp/nfi-deps python research/download_nfi_data.py"
