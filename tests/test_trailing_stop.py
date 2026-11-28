@@ -1,7 +1,7 @@
 import pytest
 
 from trading_system.domain import Side
-from trading_system.risk.trailing_stop import (
+from trading_system.trailing_stop import (
     TrailingStopConfig, TrailingStopState, update_trailing_stop,
 )
 
